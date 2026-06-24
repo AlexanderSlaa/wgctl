@@ -83,6 +83,11 @@ sudo wgctl status
 sudo wgctl down
 ```
 
+You can be logged in to more than one server — `login` stores a separate
+session per server. `networks`, `connect`, and `down` all accept
+`--server <url>` to pick which one; with no flag they use whichever server
+you most recently logged in to (or the only one, if there's just one).
+
 The CLI pins the server's certificate fingerprint on first `login`
 (trust-on-first-use) and verifies it on every later request, rather than
 disabling TLS verification outright.
