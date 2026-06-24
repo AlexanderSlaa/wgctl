@@ -33,12 +33,12 @@ re-runs itself under `sudo` automatically rather than just erroring (set
 scripted use where an unexpected password prompt would just hang).
 
 On x86_64/aarch64 Linux, installing needs no compiler or native build tools —
-but the native addon still dynamically links against `libmnl`/`libsodium` at
+but the native addon still dynamically links against `libmnl`/`libcrypto` at
 **runtime**, so if `wgctl` fails immediately with `cannot open shared object
 file`, install just those two shared libraries (no headers, no compiler):
 
 ```sh
-apt-get update && apt-get install -y --no-install-recommends libmnl0 libsodium23
+apt-get update && apt-get install -y --no-install-recommends libmnl0 openssl
 ```
 
 (or run `scripts/install-runtime-deps.sh` from the repo). On a platform
