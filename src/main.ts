@@ -35,7 +35,7 @@ Server administration (run locally on the server, as root):
   wgctl service uninstall [-y]             Stop, disable, and delete the unit (asks to confirm)
   wgctl service status                     Show systemd status
   wgctl service logs [-f] [-n N]           Show logs via journalctl
-  wgctl update                             Check npm for a newer version and install it
+  wgctl update [-y]                        Check npm for a newer version and install it (asks to confirm)
 
 Client (run on the machine that wants to connect):
   wgctl login [--server <url>]      Log in with username/password
@@ -88,7 +88,7 @@ async function main(): Promise<void> {
       await serviceCommand(args);
       break;
     case "update":
-      await updateCommand();
+      await updateCommand(args);
       break;
     default:
       console.log(HELP);

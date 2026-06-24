@@ -22,8 +22,16 @@ Every command (except `serve`, which doesn't want to hit npm on every
 restart) checks once a day whether a newer version is on npm and prints a
 one-line notice if so — it never blocks or delays the command's own output.
 Run `wgctl update` (or `sudo wgctl update` if needed for permissions) to
-install the latest version; if `wgctl` runs as a systemd service, restart it
-afterward with `sudo systemctl restart wgctl`.
+install the latest version — it asks for confirmation first (`-y` to skip).
+
+Installing the new files never by itself interrupts a running `wgctl serve`
+or any existing WireGuard tunnel — the kernel keeps `wg0` and its peers up
+independently of the wgctl process. The update only takes effect once you
+restart the service (`sudo systemctl restart wgctl`), and that restart briefly
+drops the HTTPS control-plane API for a few seconds (so a login/connect/
+registration in progress at that exact moment would need to retry) —
+existing tunnels are unaffected throughout, since the server's bootstrap
+reuses `wg0` rather than recreating it when the key already matches.
 
 ## Running the server
 
