@@ -120,10 +120,15 @@ wgctl networks                              # no root needed
 sudo wgctl connect                          # configures the local tunnel — needs root/CAP_NET_ADMIN
 sudo wgctl status
 sudo wgctl down
+sudo wgctl up                               # bring it back up later (after `down` or a reboot) without re-prompting
 ```
 
+`up` re-applies the same networks/subnets you picked with `connect` (fetched
+from the server, so a changed IP allocation or network grant is picked up
+too) — no interactive prompts, just `sudo wgctl up`.
+
 You can be logged in to more than one server — `login` stores a separate
-session per server. `networks`, `connect`, and `down` all accept
+session per server. `networks`, `connect`, `up`, and `down` all accept
 `--server <url>` to pick which one; with no flag they use whichever server
 you most recently logged in to (or the only one, if there's just one).
 
