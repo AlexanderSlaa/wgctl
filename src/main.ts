@@ -35,11 +35,15 @@ Server administration (run locally on the server, as root):
   wgctl service logs [-f] [-n N]           Show logs via journalctl
 
 Client (run on the machine that wants to connect):
-  wgctl login [--server <url>]   Log in with username/password
-  wgctl networks                 List networks available to your account
-  wgctl connect                  Select networks and bring up the local tunnel (requires root)
-  wgctl status                   Show local tunnel/peer status (requires root)
-  wgctl down                     Tear down the local tunnel (requires root)
+  wgctl login [--server <url>]      Log in with username/password
+  wgctl networks [--server <url>]   List networks available to your account
+  wgctl connect [--server <url>]    Select networks and bring up the local tunnel (requires root)
+  wgctl status                      Show local tunnel/peer status (requires root)
+  wgctl down [--server <url>]       Tear down the local tunnel (requires root)
+
+You can be logged in to multiple servers at once; --server picks which one a
+command applies to. With no --server, commands use whichever server you most
+recently logged in to (or the only one, if you're only logged in to one).
 
 Commands that configure the local WireGuard interface directly via netlink
 (serve, connect, status, down, and all server administration commands)
@@ -57,16 +61,16 @@ async function main(): Promise<void> {
       await loginCommand(args);
       break;
     case "networks":
-      await networksCommand();
+      await networksCommand(args);
       break;
     case "connect":
-      await connectCommand();
+      await connectCommand(args);
       break;
     case "status":
       await statusCommand();
       break;
     case "down":
-      await downCommand();
+      await downCommand(args);
       break;
     case "user":
       await userCommand(args);

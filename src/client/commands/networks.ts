@@ -1,10 +1,9 @@
 import { getNetworks } from "../api-client.js";
-import { loadSession } from "../config-store.js";
+import { resolveSession } from "../session-resolver.js";
 
-export async function networksCommand(): Promise<void> {
-  const session = loadSession();
+export async function networksCommand(args: string[]): Promise<void> {
+  const session = resolveSession(args);
   if (!session) {
-    console.error("Not logged in. Run `wgctl login` first.");
     process.exitCode = 1;
     return;
   }

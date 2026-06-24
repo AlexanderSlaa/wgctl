@@ -39,6 +39,6 @@ CREATE TABLE IF NOT EXISTS peers (
 
 CREATE TABLE IF NOT EXISTS sessions (
   token       TEXT PRIMARY KEY,
-  username    TEXT NOT NULL REFERENCES users(username),
+  username    TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
   expires_at  TEXT NOT NULL
 );

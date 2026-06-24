@@ -1,11 +1,12 @@
 import { WireGuardClient } from "@sourceregistry/node-wireguard";
 import { deletePeer, getMyPeer } from "../api-client.js";
 import { loadSession } from "../config-store.js";
+import { parseServerFlag, resolveSession } from "../session-resolver.js";
 import { askText } from "../prompts.js";
 
 const WG_INTERFACE = "wg0";
 
-export async function downCommand(): Promise<void> {
+export async function downCommand(args: string[]): Promise<void> {
   const wg = new WireGuardClient();
   try {
     await wg.setDown(WG_INTERFACE);
@@ -25,8 +26,15 @@ export async function downCommand(): Promise<void> {
     wg.close();
   }
 
-  const session = loadSession();
-  if (!session) return;
+  // Only error loudly if --server was explicitly given (clear intent to
+  // deregister a specific server) — otherwise silently skip the optional
+  // server-side deregistration step when there's no session to use.
+  const serverUrl = parseServerFlag(args);
+  const session = serverUrl ? resolveSession(args) : loadSession();
+  if (!session) {
+    if (serverUrl) process.exitCode = 1;
+    return;
+  }
 
   const answer = await askText("Also remove this device's registration from the server? [y/N]: ");
   if (answer.trim().toLowerCase() !== "y") return;

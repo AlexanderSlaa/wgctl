@@ -1,7 +1,8 @@
 import { WireGuardClient, generatePrivateKey, publicKey } from "@sourceregistry/node-wireguard";
 import { isValidCidr, ensureForwarding } from "../../shared/index.js";
 import { getNetworks, registerPeer } from "../api-client.js";
-import { loadSession, loadKeyPair, saveKeyPair } from "../config-store.js";
+import { loadKeyPair, saveKeyPair } from "../config-store.js";
+import { resolveSession } from "../session-resolver.js";
 import { askMultiChoice, askText } from "../prompts.js";
 
 const WG_INTERFACE = "wg0";
@@ -19,10 +20,9 @@ function parseAdvertisedSubnets(input: string): string[] {
   return subnets;
 }
 
-export async function connectCommand(): Promise<void> {
-  const session = loadSession();
+export async function connectCommand(args: string[]): Promise<void> {
+  const session = resolveSession(args);
   if (!session) {
-    console.error("Not logged in. Run `wgctl login` first.");
     process.exitCode = 1;
     return;
   }

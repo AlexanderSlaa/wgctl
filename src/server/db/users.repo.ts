@@ -31,7 +31,13 @@ export function listUsers(): UserRow[] {
 }
 
 export function deleteUser(username: string): void {
-  getDb().prepare("DELETE FROM users WHERE username = ?").run(username);
+  const db = getDb();
+  // sessions.username has no ON DELETE CASCADE (a session outliving its
+  // user is never desirable, so it's just deleted outright rather than
+  // cascaded) — without this, deleting a user with an active session fails
+  // with a foreign key constraint error instead of removing the user.
+  db.prepare("DELETE FROM sessions WHERE username = ?").run(username);
+  db.prepare("DELETE FROM users WHERE username = ?").run(username);
 }
 
 export function setPassword(username: string, password: string): void {
