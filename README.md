@@ -18,6 +18,13 @@ Requires Node.js 22+ and Linux (the native WireGuard control library talks
 directly to the kernel via netlink — no `wg`/`wg-quick` binary needed).
 `wgctl serve`, `connect`, `status`, and `down` need root / `CAP_NET_ADMIN`.
 
+Every command (except `serve`, which doesn't want to hit npm on every
+restart) checks once a day whether a newer version is on npm and prints a
+one-line notice if so — it never blocks or delays the command's own output.
+Run `wgctl update` (or `sudo wgctl update` if needed for permissions) to
+install the latest version; if `wgctl` runs as a systemd service, restart it
+afterward with `sudo systemctl restart wgctl`.
+
 ## Running the server
 
 ```sh

@@ -9,6 +9,8 @@ import { userCommand } from "./commands/admin/user.js";
 import { networkCommand } from "./commands/admin/network.js";
 import { peerCommand } from "./commands/admin/peer.js";
 import { serviceCommand } from "./commands/admin/service.js";
+import { updateCommand } from "./commands/update.js";
+import { checkForUpdate } from "./version-check.js";
 
 const HELP = `wgctl — orchestrated WireGuard tunnels
 
@@ -33,6 +35,7 @@ Server administration (run locally on the server, as root):
   wgctl service uninstall [-y]             Stop, disable, and delete the unit (asks to confirm)
   wgctl service status                     Show systemd status
   wgctl service logs [-f] [-n N]           Show logs via journalctl
+  wgctl update                             Check npm for a newer version and install it
 
 Client (run on the machine that wants to connect):
   wgctl login [--server <url>]      Log in with username/password
@@ -84,9 +87,18 @@ async function main(): Promise<void> {
     case "service":
       await serviceCommand(args);
       break;
+    case "update":
+      await updateCommand();
+      break;
     default:
       console.log(HELP);
       process.exitCode = command ? 1 : 0;
+  }
+
+  // Skip for `serve` (a long-running daemon shouldn't hit the registry on
+  // every restart) and `update` (which already checks for itself).
+  if (command !== "serve" && command !== "update") {
+    checkForUpdate();
   }
 }
 
