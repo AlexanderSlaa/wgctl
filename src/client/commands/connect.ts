@@ -1,11 +1,10 @@
-import { WireGuardClient, generatePrivateKey, publicKey } from "@sourceregistry/node-wireguard";
-import { isValidCidr, ensureForwarding } from "../../shared/index.js";
+import { generatePrivateKey, publicKey } from "@sourceregistry/node-wireguard";
+import { isValidCidr } from "../../shared/index.js";
 import { getNetworks, registerPeer } from "../api-client.js";
 import { loadKeyPair, saveKeyPair } from "../config-store.js";
 import { resolveSession } from "../session-resolver.js";
 import { askMultiChoice, askText } from "../prompts.js";
-
-const WG_INTERFACE = "wg0";
+import { applyLocalTunnel } from "../wg-apply.js";
 
 function parseAdvertisedSubnets(input: string): string[] {
   const subnets = input
@@ -65,31 +64,8 @@ export async function connectCommand(args: string[]): Promise<void> {
     advertisedSubnets,
   });
 
-  const wg = new WireGuardClient();
   try {
-    try {
-      await wg.createDevice(WG_INTERFACE);
-    } catch (err: any) {
-      if (err?.code !== "EEXIST") throw err;
-    }
-    await wg.setAddress(WG_INTERFACE, result.clientAddress);
-    await wg.configureDevice(WG_INTERFACE, {
-      privateKey: keyPair.privateKey,
-      peers: [
-        {
-          publicKey: result.serverPublicKey,
-          endpoint: result.endpoint,
-          allowedIPs: result.allowedIPs,
-          replaceAllowedIPs: true,
-          persistentKeepaliveInterval: result.persistentKeepalive,
-        },
-      ],
-    });
-    await wg.setUp(WG_INTERFACE);
-
-    if (advertisedSubnets.length > 0) {
-      ensureForwarding(WG_INTERFACE);
-    }
+    await applyLocalTunnel({ keyPair, result, advertisedSubnets });
   } catch (err: any) {
     if (err?.code === "EPERM" || err?.code === "EACCES") {
       console.error("Permission denied configuring the local WireGuard interface — re-run with sudo: `sudo wgctl connect`.");
@@ -97,8 +73,6 @@ export async function connectCommand(args: string[]): Promise<void> {
       return;
     }
     throw err;
-  } finally {
-    wg.close();
   }
 
   console.log(`Connected. Assigned address: ${result.clientAddress}`);

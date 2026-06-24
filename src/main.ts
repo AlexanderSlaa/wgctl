@@ -30,6 +30,7 @@ Client (run on the machine that wants to connect):
   wgctl login [--server <url>]      Log in with username/password
   wgctl networks [--server <url>]   List networks available to your account
   wgctl connect [--server <url>]    Select networks and bring up the local tunnel (requires root)
+  wgctl up [--server <url>]         Re-apply the existing registration and bring the tunnel back up (requires root)
   wgctl status                      Show local tunnel/peer status (requires root)
   wgctl down [--server <url>]       Tear down the local tunnel (requires root)
 
@@ -65,6 +66,9 @@ async function main(): Promise<void> {
       break;
     case "connect":
       await (await import("./client/commands/connect.js")).connectCommand(args);
+      break;
+    case "up":
+      await (await import("./client/commands/up.js")).upCommand(args);
       break;
     case "status":
       await (await import("./client/commands/status.js")).statusCommand();
