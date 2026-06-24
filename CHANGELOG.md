@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/AlexanderSlaa/wgctl/compare/v1.0.0...v1.0.1) (2026-06-24)
+
+
+### Bug Fixes
+
+* **packaging:** use relative bin path without leading ./ to avoid npm normalization warning ([3655d53](https://github.com/AlexanderSlaa/wgctl/commit/3655d53b5b49d89a2328546802dd7a8193aa28af))
+
 # 1.0.0 (2026-06-24)
 
 
