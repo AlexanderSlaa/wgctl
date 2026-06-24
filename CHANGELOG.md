@@ -1,3 +1,10 @@
+## [1.0.5](https://github.com/AlexanderSlaa/wgctl/compare/v1.0.4...v1.0.5) (2026-06-24)
+
+
+### Bug Fixes
+
+* **client:** force a fresh TLS handshake per request for fingerprint pinning ([1a1e726](https://github.com/AlexanderSlaa/wgctl/commit/1a1e72639c4579d93789f1a1f96ecd0b3d9d81d9))
+
 ## [1.0.4](https://github.com/AlexanderSlaa/wgctl/compare/v1.0.3...v1.0.4) (2026-06-24)
 
 
