@@ -1,15 +1,4 @@
 #!/usr/bin/env node
-import { serveCommand } from "./server/serve.js";
-import { loginCommand } from "./client/commands/login.js";
-import { networksCommand } from "./client/commands/networks.js";
-import { connectCommand } from "./client/commands/connect.js";
-import { statusCommand } from "./client/commands/status.js";
-import { downCommand } from "./client/commands/down.js";
-import { userCommand } from "./commands/admin/user.js";
-import { networkCommand } from "./commands/admin/network.js";
-import { peerCommand } from "./commands/admin/peer.js";
-import { serviceCommand } from "./commands/admin/service.js";
-import { updateCommand } from "./commands/update.js";
 import { checkForUpdate } from "./version-check.js";
 
 const HELP = `wgctl — orchestrated WireGuard tunnels
@@ -53,42 +42,50 @@ Commands that configure the local WireGuard interface directly via netlink
 require root / CAP_NET_ADMIN — run them as \`sudo wgctl <command>\`.
 `;
 
+// Commands are imported lazily (inside each case) rather than statically at
+// the top of this file. Most of them transitively load the native
+// @sourceregistry/node-wireguard addon, which dynamically links against
+// libmnl/libsodium at runtime — if those shared libraries aren't installed,
+// loading fails immediately. Lazy imports mean that failure only happens for
+// commands that actually need netlink access; pure-HTTP commands (login,
+// networks, update, ...) keep working regardless, and the error is caught
+// below with an actionable message instead of a raw stack trace.
 async function main(): Promise<void> {
   const [, , command, ...args] = process.argv;
 
   switch (command) {
     case "serve":
-      await serveCommand();
+      await (await import("./server/serve.js")).serveCommand();
       break;
     case "login":
-      await loginCommand(args);
+      await (await import("./client/commands/login.js")).loginCommand(args);
       break;
     case "networks":
-      await networksCommand(args);
+      await (await import("./client/commands/networks.js")).networksCommand(args);
       break;
     case "connect":
-      await connectCommand(args);
+      await (await import("./client/commands/connect.js")).connectCommand(args);
       break;
     case "status":
-      await statusCommand();
+      await (await import("./client/commands/status.js")).statusCommand();
       break;
     case "down":
-      await downCommand(args);
+      await (await import("./client/commands/down.js")).downCommand(args);
       break;
     case "user":
-      await userCommand(args);
+      await (await import("./commands/admin/user.js")).userCommand(args);
       break;
     case "network":
-      await networkCommand(args);
+      await (await import("./commands/admin/network.js")).networkCommand(args);
       break;
     case "peer":
-      await peerCommand(args);
+      await (await import("./commands/admin/peer.js")).peerCommand(args);
       break;
     case "service":
-      await serviceCommand(args);
+      await (await import("./commands/admin/service.js")).serviceCommand(args);
       break;
     case "update":
-      await updateCommand(args);
+      await (await import("./commands/update.js")).updateCommand(args);
       break;
     default:
       console.log(HELP);
@@ -103,6 +100,15 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error(err instanceof Error ? err.message : err);
+  if (err?.code === "ERR_DLOPEN_FAILED" && /\.so(\.\d+)?: cannot open shared object file/.test(err.message ?? "")) {
+    console.error(
+      `${err.message}\n\n` +
+        "wgctl's native WireGuard addon needs the libmnl and libsodium runtime libraries installed " +
+        "(not the full build toolchain — just the shared libraries). On Debian/Ubuntu:\n\n" +
+        "  apt-get update && apt-get install -y --no-install-recommends libmnl0 libsodium23\n",
+    );
+  } else {
+    console.error(err instanceof Error ? err.message : err);
+  }
   process.exitCode = 1;
 });

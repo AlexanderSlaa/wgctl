@@ -13,11 +13,14 @@ npm run build
 node dist/main.js serve   # or: npm link && wgctl serve
 ```
 
-`@sourceregistry/node-wireguard`'s `binding.gyp` makes `npm install` always
-attempt a native build (`node-gyp rebuild`) regardless of whether a prebuild
-matches your platform/Node ABI, so `scripts/install-native-deps.sh`
-(`build-essential`, `pkg-config`, `libmnl-dev`, `libsodium-dev`) needs to run
-first or `npm install` will fail.
+A local git checkout has no `bin/<triplet>/` prebuild (those only get staged
+into the published npm tarball — see `node_modules/@sourceregistry/node-wireguard/scripts/install.js`),
+so `npm install` always builds the native addon from source here, and needs
+`scripts/install-native-deps.sh` (`build-essential`, `pkg-config`,
+`libmnl-dev`, `libsodium-dev`) run first or it'll fail. This is *not* true
+for end users installing the published `wgctl` package on x86_64/aarch64
+Linux — they get a prebuild and skip the native build entirely, needing only
+the runtime libraries (`scripts/install-runtime-deps.sh`) — see README.md.
 
 ```sh
 npm test    # currently just `tsc --noEmit` — there are no unit tests yet (see below)

@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Installs the native build toolchain needed to compile @sourceregistry/node-wireguard's
-# N-API addon from source, in case npm can't find a matching prebuild for this
-# platform/Node ABI combination. Idempotent (apt-get install is a no-op if already present).
+# Full native build toolchain — only needed as a fallback on a platform
+# without a published @sourceregistry/node-wireguard prebuild (x86_64/aarch64
+# Linux have one; `npm install` then builds from source automatically and
+# needs this). If you're on a supported platform and just hit a missing
+# libmnl/libsodium *runtime* error, you want scripts/install-runtime-deps.sh
+# instead — it's much lighter (no compiler, no headers).
 set -euo pipefail
 
 apt-get update

@@ -28,6 +28,19 @@ Requires Node.js 22+ and Linux (the native WireGuard control library talks
 directly to the kernel via netlink — no `wg`/`wg-quick` binary needed).
 `wgctl serve`, `connect`, `status`, and `down` need root / `CAP_NET_ADMIN`.
 
+On x86_64/aarch64 Linux, installing needs no compiler or native build tools —
+but the native addon still dynamically links against `libmnl`/`libsodium` at
+**runtime**, so if `wgctl` fails immediately with `cannot open shared object
+file`, install just those two shared libraries (no headers, no compiler):
+
+```sh
+apt-get update && apt-get install -y --no-install-recommends libmnl0 libsodium23
+```
+
+(or run `scripts/install-runtime-deps.sh` from the repo). On a platform
+without a published prebuild, `npm install` instead builds from source and
+needs the full toolchain — see `scripts/install-native-deps.sh`.
+
 Every command (except `serve`, which doesn't want to hit npm on every
 restart) checks once a day whether a newer version is on npm and prints a
 one-line notice if so — it never blocks or delays the command's own output.
