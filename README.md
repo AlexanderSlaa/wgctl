@@ -1,93 +1,121 @@
-# Wireguard Server
+# wgctl
 
+A single binary that's both the WireGuard orchestration server and the
+terminal client. Run `wgctl serve` on the box that should act as the VPN
+hub; run `wgctl login` / `wgctl connect` on any machine that wants to join.
+Users authenticate with a username/password, pick which predefined networks
+they're authorized to connect to, optionally advertise local subnets behind
+their own machine, and the config exchange + tunnel setup on both ends
+happens automatically over HTTPS — no hand-written WireGuard config files.
 
+## Install
 
-## Getting started
-
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-* [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://git.datalabrotterdam.nl/datalab-rotterdam/services/wireguard-server.git
-git branch -M main
-git push -uf origin main
+```sh
+npm install -g wgctl
 ```
 
-## Integrate with your tools
+Requires Node.js 22+ and Linux (the native WireGuard control library talks
+directly to the kernel via netlink — no `wg`/`wg-quick` binary needed).
+`wgctl serve`, `connect`, `status`, and `down` need root / `CAP_NET_ADMIN`.
 
-* [Set up project integrations](https://git.datalabrotterdam.nl/datalab-rotterdam/services/wireguard-server/-/settings/integrations)
+## Running the server
 
-## Collaborate with your team
+```sh
+sudo PUBLIC_HOST=<this server's public IP or hostname> wgctl serve
+```
 
-* [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+On first run this:
+- generates a self-signed TLS certificate at `/etc/wgctl/tls/` if one doesn't exist,
+- creates `/etc/wgctl/db.sqlite` (users, networks, peers) if it doesn't exist,
+- **takes over the existing WireGuard interface on `wg0`/port 51820** if one
+  is already configured by hand (e.g. via `wg-quick` — see
+  `src/server/wg/bootstrap.ts`): it reuses the existing private key and
+  re-asserts any peers found in `/etc/wireguard/wg0.conf` as permanent
+  "static" peers the API can never delete or modify, then manages additional
+  peers registered through the API alongside them.
 
-## Test and Deploy
+`PUBLIC_HOST` is optional — if unset, `wgctl` auto-detects the first
+non-internal IPv4 address and warns about it. Set it explicitly if this box
+has multiple interfaces, sits behind NAT, or clients should use a hostname.
 
-Use the built-in continuous integration in GitLab.
+### Running as a systemd service (so it survives a reboot)
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+`@sourceregistry/node-wireguard` only talks to live kernel netlink state —
+it writes nothing to disk, so `wg0` and everything on it disappear on
+reboot until something runs `wgctl serve` again. `wgctl service` manages a
+systemd unit that does that automatically:
 
-***
+```sh
+sudo wgctl service enable     # installs the unit if needed, starts it now and on every boot
+sudo wgctl service status
+sudo wgctl service logs -f    # journalctl -u wgctl, follow mode
+sudo wgctl service disable    # stop and remove from boot (unit file is kept)
+sudo wgctl service uninstall  # stop, disable, and delete the unit + env file — asks to confirm (-y to skip)
+```
 
-# Editing this README
+Environment variables (`PUBLIC_HOST`, `PORT`, etc.) for the service go in
+`/etc/wgctl/wgctl.env`, created by `wgctl service install`/`enable`.
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+### Managing users and networks
 
-## Suggestions for a good README
+There's no web UI — manage everything from the same binary, run locally on
+the server as root:
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+```sh
+sudo wgctl user add alice <password>          # create a user
+sudo wgctl user passwd alice                  # change a password
+sudo wgctl user rm alice                      # remove a user (revokes their tunnel access too)
+sudo wgctl user ls
 
-## Name
-Choose a self-explaining name for your project.
+sudo wgctl network add office-lan 192.168.10.0/24 "Office LAN"
+sudo wgctl network grant alice office-lan     # authorize a user for a network
+sudo wgctl network revoke alice office-lan
+sudo wgctl network ls
+```
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+## Connecting as a client
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+```sh
+wgctl login --server https://<host>:8443    # no root needed
+wgctl networks                              # no root needed
+sudo wgctl connect                          # configures the local tunnel — needs root/CAP_NET_ADMIN
+sudo wgctl status
+sudo wgctl down
+```
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+The CLI pins the server's certificate fingerprint on first `login`
+(trust-on-first-use) and verifies it on every later request, rather than
+disabling TLS verification outright.
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+**Don't run `wgctl serve` and `wgctl connect` against each other on the same
+machine/interface** — both default to managing an interface named `wg0`, so
+running the client against a server on the same box will reconfigure (and
+effectively replace the identity of) the very interface the server manages.
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+## Known v1 gaps
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+- No NAT/internet-egress support — this mirrors a hand-configured
+  hub-and-spoke setup, relaying peer-to-peer traffic through the server, not
+  shared internet access.
+- TLS is self-signed with CLI-side fingerprint pinning, not a CA-issued
+  certificate.
+- The masked-password prompt (`wgctl login`, `user passwd`) requires a real
+  interactive terminal — it can't be driven through a plain non-interactive
+  pipe.
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+## Development
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+```sh
+git clone https://github.com/AlexanderSlaa/wgctl.git && cd wgctl
+npm install
+npm run build
+node dist/main.js serve   # or: npm link && wgctl serve
+```
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+## Releases
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+Versioning and npm publishing are automated with [semantic-release](https://semantic-release.gitbook.io/),
+driven by [Conventional Commits](https://www.conventionalcommits.org/) on
+`main` (`fix:`, `feat:`, `feat!:`/`BREAKING CHANGE:`, etc. — see
+`.github/workflows/ci.yml` and `.releaserc.json`). Don't bump the version in
+`package.json` by hand; commit message prefixes determine the next version.

@@ -1,0 +1,43 @@
+{
+  "name": "wgctl",
+  "version": "0.0.0-development",
+  "description": "Orchestrated WireGuard tunnels: an HTTPS control-plane daemon and terminal client in a single binary.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "wgctl": "./dist/main.js"
+  },
+  "files": [
+    "dist",
+    "scripts",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlexanderSlaa/wgctl.git"
+  },
+  "homepage": "https://github.com/AlexanderSlaa/wgctl#readme",
+  "bugs": {
+    "url": "https://github.com/AlexanderSlaa/wgctl/issues"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && mkdir -p dist/server/db && cp src/server/db/schema.sql dist/server/db/schema.sql && chmod +x dist/main.js",
+    "test": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@sourceregistry/node-webserver": "^1.8.0",
+    "@sourceregistry/node-wireguard": "^1.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^24.0.0",
+    "semantic-release": "^25.0.0",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1"
+  }
+}
