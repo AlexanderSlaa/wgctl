@@ -43,11 +43,10 @@ On first run this:
 - generates a self-signed TLS certificate at `/etc/wgctl/tls/` if one doesn't exist,
 - creates `/etc/wgctl/db.sqlite` (users, networks, peers) if it doesn't exist,
 - **takes over the existing WireGuard interface on `wg0`/port 51820** if one
-  is already configured by hand (e.g. via `wg-quick` — see
-  `src/server/wg/bootstrap.ts`): it reuses the existing private key and
-  re-asserts any peers found in `/etc/wireguard/wg0.conf` as permanent
-  "static" peers the API can never delete or modify, then manages additional
-  peers registered through the API alongside them.
+  is already configured by hand (e.g. via `wg-quick`): it reuses the existing
+  private key and re-asserts any peers found in `/etc/wireguard/wg0.conf` as
+  permanent "static" peers the API can never delete or modify, then manages
+  additional peers registered through the API alongside them.
 
 `PUBLIC_HOST` is optional — if unset, `wgctl` auto-detects the first
 non-internal IPv4 address and warns about it. Set it explicitly if this box
@@ -55,10 +54,9 @@ has multiple interfaces, sits behind NAT, or clients should use a hostname.
 
 ### Running as a systemd service (so it survives a reboot)
 
-`@sourceregistry/node-wireguard` only talks to live kernel netlink state —
-it writes nothing to disk, so `wg0` and everything on it disappear on
-reboot until something runs `wgctl serve` again. `wgctl service` manages a
-systemd unit that does that automatically:
+WireGuard interfaces created via netlink only exist in the kernel — they
+disappear on reboot until something runs `wgctl serve` again. `wgctl
+service` manages a systemd unit that does that automatically:
 
 ```sh
 sudo wgctl service enable     # installs the unit if needed, starts it now and on every boot
@@ -86,6 +84,9 @@ sudo wgctl network add office-lan 192.168.10.0/24 "Office LAN"
 sudo wgctl network grant alice office-lan     # authorize a user for a network
 sudo wgctl network revoke alice office-lan
 sudo wgctl network ls
+
+sudo wgctl peer ls                            # every registered peer, with live handshake status
+sudo wgctl peer rm <id>                       # revoke a single peer/device without removing its user
 ```
 
 ## Connecting as a client
@@ -112,7 +113,7 @@ machine/interface** — both default to managing an interface named `wg0`, so
 running the client against a server on the same box will reconfigure (and
 effectively replace the identity of) the very interface the server manages.
 
-## Known v1 gaps
+## Known limitations
 
 - No NAT/internet-egress support — this mirrors a hand-configured
   hub-and-spoke setup, relaying peer-to-peer traffic through the server, not
@@ -123,19 +124,7 @@ effectively replace the identity of) the very interface the server manages.
   interactive terminal — it can't be driven through a plain non-interactive
   pipe.
 
-## Development
+## Contributing
 
-```sh
-git clone https://github.com/AlexanderSlaa/wgctl.git && cd wgctl
-npm install
-npm run build
-node dist/main.js serve   # or: npm link && wgctl serve
-```
-
-## Releases
-
-Versioning and npm publishing are automated with [semantic-release](https://semantic-release.gitbook.io/),
-driven by [Conventional Commits](https://www.conventionalcommits.org/) on
-`main` (`fix:`, `feat:`, `feat!:`/`BREAKING CHANGE:`, etc. — see
-`.github/workflows/ci.yml` and `.releaserc.json`). Don't bump the version in
-`package.json` by hand; commit message prefixes determine the next version.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for building from source, the
+project layout, and the release process.
