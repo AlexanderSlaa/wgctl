@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.2.0...v1.3.0) (2026-06-24)
+
+
+### Features
+
+* **cli:** auto-elevate with sudo instead of just erroring ([0cf932f](https://github.com/AlexanderSlaa/wgctl/commit/0cf932f1a1ff978fe77c2690bdc89679a79c41e1))
+
 # [1.2.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.1.0...v1.2.0) (2026-06-24)
 
 
