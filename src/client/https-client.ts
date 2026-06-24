@@ -38,6 +38,15 @@ export function secureRequest(url: string, options: SecureRequestOptions = {}): 
         method: options.method ?? "GET",
         headers: options.headers,
         rejectUnauthorized: false,
+        // Node's https.globalAgent defaults to keepAlive: true, which pools
+        // and reuses TLS sockets across requests to the same host — but
+        // 'secureConnect' only fires on a fresh handshake, never on a reused
+        // socket. Without this, every request after the first on a given
+        // connection would see an empty `fingerprint` and fail the pin check
+        // below against a real certificate it never actually re-inspected.
+        // A fresh handshake per request is the correct tradeoff for
+        // security-critical pinning code like this.
+        agent: false,
       },
       (res) => {
         let data = "";
