@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.1.0...v1.2.0) (2026-06-24)
+
+
+### Features
+
+* **server:** support --host/--port flags on wgctl serve ([01eec55](https://github.com/AlexanderSlaa/wgctl/commit/01eec55a9524b1a0c48bfe277e4a01f3b0e8df08))
+
 # [1.1.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.0.5...v1.1.0) (2026-06-24)
 
 
