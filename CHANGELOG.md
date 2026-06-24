@@ -1,3 +1,10 @@
+## [1.0.4](https://github.com/AlexanderSlaa/wgctl/compare/v1.0.3...v1.0.4) (2026-06-24)
+
+
+### Bug Fixes
+
+* **cli:** show actionable error for missing native libs, lazy-load commands ([5df40ad](https://github.com/AlexanderSlaa/wgctl/commit/5df40adfa415cd8ca0395ca48a5f96e5529706bd))
+
 ## [1.0.3](https://github.com/AlexanderSlaa/wgctl/compare/v1.0.2...v1.0.3) (2026-06-24)
 
 
