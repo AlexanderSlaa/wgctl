@@ -4,7 +4,8 @@ import { checkForUpdate } from "./version-check.js";
 const HELP = `wgctl — orchestrated WireGuard tunnels
 
 Server (run on the box that should act as the VPN hub):
-  wgctl serve                    Start the HTTPS control-plane daemon (requires root)
+  wgctl serve [--host <addr>] [--port <n>]   Start the HTTPS control-plane daemon (requires root)
+                                              Defaults to all interfaces and port 8443 (or $HOST/$PORT)
 
 Server administration (run locally on the server, as root):
   wgctl user add <user> <pass> [--admin]   Create a user
@@ -56,7 +57,7 @@ async function main(): Promise<void> {
 
   switch (command) {
     case "serve":
-      await (await import("./server/serve.js")).serveCommand();
+      await (await import("./server/serve.js")).serveCommand(args);
       break;
     case "login":
       await (await import("./client/commands/login.js")).loginCommand(args);

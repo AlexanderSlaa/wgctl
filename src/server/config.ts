@@ -19,6 +19,8 @@ let warnedAboutAutoDetect = false;
 
 export const config = {
   port: Number(process.env.PORT ?? 8443),
+  /** Bind address for the HTTPS control-plane API. Undefined = listen on all interfaces (the default). */
+  host: process.env.HOST || undefined,
   dbPath: process.env.DB_PATH ?? "/etc/wgctl/db.sqlite",
   wgInterface: process.env.WG_INTERFACE ?? "wg0",
   wgConfPath: process.env.WG_CONF_PATH ?? "/etc/wireguard/wg0.conf",

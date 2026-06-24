@@ -3,7 +3,12 @@ import { ensureTlsCertificate } from "./tls.js";
 import { createApp } from "./app.js";
 import { config } from "./config.js";
 
-export async function serveCommand(): Promise<void> {
+function parseFlag(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i !== -1 ? args[i + 1] : undefined;
+}
+
+export async function serveCommand(args: string[] = []): Promise<void> {
   ensureTlsCertificate();
 
   try {
@@ -13,8 +18,11 @@ export async function serveCommand(): Promise<void> {
     process.exit(1);
   }
 
+  const port = Number(parseFlag(args, "--port") ?? config.port);
+  const host = parseFlag(args, "--host") ?? config.host;
+
   const app = createApp();
-  app.listen(config.port, () => {
-    console.log(`wgctl listening on https://0.0.0.0:${config.port}`);
+  app.listen(port, host, () => {
+    console.log(`wgctl listening on https://${host ?? "0.0.0.0"}:${port}`);
   });
 }

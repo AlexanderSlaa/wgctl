@@ -62,6 +62,14 @@ reuses `wg0` rather than recreating it when the key already matches.
 sudo PUBLIC_HOST=<this server's public IP or hostname> wgctl serve
 ```
 
+By default the HTTPS control-plane API listens on all interfaces, port
+8443. Override with `--host`/`--port` (or the `HOST`/`PORT` environment
+variables) if you need it bound to a specific address or a different port:
+
+```sh
+sudo wgctl serve --host 127.0.0.1 --port 9443   # e.g. behind your own reverse proxy
+```
+
 On first run this:
 - generates a self-signed TLS certificate at `/etc/wgctl/tls/` if one doesn't exist,
 - creates `/etc/wgctl/db.sqlite` (users, networks, peers) if it doesn't exist,
