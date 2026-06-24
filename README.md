@@ -1,4 +1,14 @@
+<div align="center">
+
 # wgctl
+
+[![npm version](https://img.shields.io/npm/v/wgctl?style=flat-square&color=f96743)](https://www.npmjs.com/package/wgctl)
+[![npm downloads](https://img.shields.io/npm/dm/wgctl?style=flat-square)](https://www.npmjs.com/package/wgctl)
+[![CI](https://img.shields.io/github/actions/workflow/status/AlexanderSlaa/wgctl/ci.yml?style=flat-square&label=CI)](https://github.com/AlexanderSlaa/wgctl/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/wgctl?style=flat-square)](./LICENSE)
+[![node](https://img.shields.io/node/v/wgctl?style=flat-square&color=339933&logo=node.js&logoColor=white)](https://nodejs.org)
+
+</div>
 
 A single binary that's both the WireGuard orchestration server and the
 terminal client. Run `wgctl serve` on the box that should act as the VPN
