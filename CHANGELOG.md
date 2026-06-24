@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/AlexanderSlaa/wgctl/compare/v1.0.1...v1.0.2) (2026-06-24)
+
+
+### Bug Fixes
+
+* **ci:** allow manual release runs via workflow_dispatch ([d948750](https://github.com/AlexanderSlaa/wgctl/commit/d9487508344cc5a200723b6d79e02b8bd0d17e94))
+
 ## [1.0.1](https://github.com/AlexanderSlaa/wgctl/compare/v1.0.0...v1.0.1) (2026-06-24)
 
 
