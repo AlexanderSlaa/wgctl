@@ -1,6 +1,6 @@
 {
   "name": "wgctl",
-  "version": "0.0.0-development",
+  "version": "1.0.0",
   "description": "Orchestrated WireGuard tunnels: an HTTPS control-plane daemon and terminal client in a single binary.",
   "license": "MIT",
   "type": "module",
