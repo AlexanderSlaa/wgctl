@@ -25,12 +25,16 @@ jobs:
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org/"
+      - name: Install native build dependencies
+        run: sudo bash scripts/install-native-deps.sh
       - name: Install dependencies
         run: npm install
       - name: Run tests
         run: npm test
       - name: Build the package
         run: npm run build
+      - name: Smoke test the binary
+        run: npx wgctl
 
   release:
     name: Release
@@ -54,11 +58,15 @@ jobs:
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org/"
+      - name: Install native build dependencies
+        run: sudo bash scripts/install-native-deps.sh
       - name: Install dependencies
         run: npm install
       - name: Restore tracked files
         run: git restore .
       - name: Build the package
         run: npm run build
+      - name: Smoke test the binary
+        run: npx wgctl
       - name: Run semantic-release
         run: npx semantic-release
