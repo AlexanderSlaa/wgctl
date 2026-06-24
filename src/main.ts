@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 import { checkForUpdate } from "./version-check.js";
+import { ensureRoot } from "./elevate.js";
+
+const ROOT_REQUIRED_COMMANDS = new Set(["serve", "connect", "up", "status", "down", "user", "network", "peer", "service"]);
 
 const HELP = `wgctl — orchestrated WireGuard tunnels
 
@@ -40,8 +43,10 @@ command applies to. With no --server, commands use whichever server you most
 recently logged in to (or the only one, if you're only logged in to one).
 
 Commands that configure the local WireGuard interface directly via netlink
-(serve, connect, status, down, and all server administration commands)
-require root / CAP_NET_ADMIN — run them as \`sudo wgctl <command>\`.
+(serve, connect, up, status, down, and all server administration commands)
+require root / CAP_NET_ADMIN. If you run one without it, wgctl re-runs
+itself under \`sudo\` automatically (set WGCTL_NO_SUDO=1 to disable this and
+get a plain permission error instead).
 `;
 
 // Commands are imported lazily (inside each case) rather than statically at
@@ -54,6 +59,10 @@ require root / CAP_NET_ADMIN — run them as \`sudo wgctl <command>\`.
 // below with an actionable message instead of a raw stack trace.
 async function main(): Promise<void> {
   const [, , command, ...args] = process.argv;
+
+  if (command && ROOT_REQUIRED_COMMANDS.has(command)) {
+    ensureRoot(); // re-execs under sudo and exits if not already root
+  }
 
   switch (command) {
     case "serve":

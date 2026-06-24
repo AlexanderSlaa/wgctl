@@ -26,7 +26,11 @@ npm install -g wgctl
 
 Requires Node.js 22+ and Linux (the native WireGuard control library talks
 directly to the kernel via netlink — no `wg`/`wg-quick` binary needed).
-`wgctl serve`, `connect`, `status`, and `down` need root / `CAP_NET_ADMIN`.
+`serve`, `connect`, `up`, `status`, `down`, and the server administration
+commands all need root / `CAP_NET_ADMIN` — if you run one without it, wgctl
+re-runs itself under `sudo` automatically rather than just erroring (set
+`WGCTL_NO_SUDO=1` to get the plain permission error instead, e.g. for
+scripted use where an unexpected password prompt would just hang).
 
 On x86_64/aarch64 Linux, installing needs no compiler or native build tools —
 but the native addon still dynamically links against `libmnl`/`libsodium` at
