@@ -1,3 +1,10 @@
+## [1.0.3](https://github.com/AlexanderSlaa/wgctl/compare/v1.0.2...v1.0.3) (2026-06-24)
+
+
+### Bug Fixes
+
+* **deps:** bump node-wireguard to 1.0.2 ([7b87745](https://github.com/AlexanderSlaa/wgctl/commit/7b8774506d738e04b8470c98ffde7d749e5ea174))
+
 ## [1.0.2](https://github.com/AlexanderSlaa/wgctl/compare/v1.0.1...v1.0.2) (2026-06-24)
 
 
