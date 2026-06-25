@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.3.0...v1.4.0) (2026-06-25)
+
+
+### Features
+
+* **cli:** add wgctl setup first-run wizard ([eac8e2a](https://github.com/AlexanderSlaa/wgctl/commit/eac8e2a198817468cdf606a979fc7ce0f8184500))
+
 # [1.3.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.2.0...v1.3.0) (2026-06-24)
 
 
