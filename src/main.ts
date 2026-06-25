@@ -2,9 +2,15 @@
 import { checkForUpdate } from "./version-check.js";
 import { ensureRoot } from "./elevate.js";
 
-const ROOT_REQUIRED_COMMANDS = new Set(["serve", "connect", "up", "status", "down", "user", "network", "peer", "service"]);
+const ROOT_REQUIRED_COMMANDS = new Set(["serve", "connect", "up", "status", "down", "user", "network", "peer", "service", "init", "setup"]);
 
 const HELP = `wgctl — orchestrated WireGuard tunnels
+
+First-time setup (run on the server, as root):
+  wgctl setup [--interface <name>] [--force]  Interactive wizard: build native addon if needed,
+                                              configure WireGuard, write env, install systemd service
+                                              Re-run with --interface wg1 to set up additional instances
+  wgctl init [--force]                        Low-level: generate /etc/wireguard/wg0.conf only (no prompts)
 
 Server (run on the box that should act as the VPN hub):
   wgctl serve [--host <addr>] [--port <n>]   Start the HTTPS control-plane daemon (requires root)
@@ -65,6 +71,12 @@ async function main(): Promise<void> {
   }
 
   switch (command) {
+    case "setup":
+      await (await import("./commands/admin/setup.js")).setupCommand(args);
+      break;
+    case "init":
+      await (await import("./commands/admin/init.js")).initCommand(args);
+      break;
     case "serve":
       await (await import("./server/serve.js")).serveCommand(args);
       break;

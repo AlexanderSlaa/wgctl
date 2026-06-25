@@ -13,8 +13,14 @@ export async function serveCommand(args: string[] = []): Promise<void> {
 
   try {
     await bootstrapWireGuard();
-  } catch (err) {
-    console.error("WireGuard bootstrap failed — refusing to serve against a half-configured tunnel:", err);
+  } catch (err: any) {
+    if (err?.code === "ENOENT" && err?.path === config.wgConfPath) {
+      console.error(
+        `No WireGuard config found at ${config.wgConfPath}.\n\nRun: wgctl setup\n`,
+      );
+    } else {
+      console.error("WireGuard bootstrap failed — refusing to serve against a half-configured tunnel:", err);
+    }
     process.exit(1);
   }
 
