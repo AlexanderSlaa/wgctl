@@ -31,7 +31,7 @@
   },
   "dependencies": {
     "@sourceregistry/node-webserver": "^1.8.0",
-    "@sourceregistry/node-wireguard": "^1.0.3"
+    "@sourceregistry/node-wireguard": "^1.0.4"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
