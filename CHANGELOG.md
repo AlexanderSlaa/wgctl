@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.4.0...v1.5.0) (2026-06-26)
+
+
+### Features
+
+* validate and build native addon at runtime instead of install time ([30e9f8a](https://github.com/AlexanderSlaa/wgctl/commit/30e9f8a89cadeb558ec2550bed0e5b041981bfb9))
+
 # [1.4.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.3.0...v1.4.0) (2026-06-25)
 
 
