@@ -1,3 +1,10 @@
+# [1.11.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.10.0...v1.11.0) (2026-06-26)
+
+
+### Features
+
+* **service:** add start, stop, restart subcommands ([0802379](https://github.com/AlexanderSlaa/wgctl/commit/08023792e0dd265bdf86ff911e1ea7fcb8767bbc))
+
 # [1.10.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.9.1...v1.10.0) (2026-06-26)
 
 
