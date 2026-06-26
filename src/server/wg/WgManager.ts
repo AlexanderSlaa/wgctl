@@ -1,4 +1,8 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomBytes } from "node:crypto";
 import { config } from "../config.js";
 import { listAllPeers } from "../db/peers.repo.js";
 
@@ -23,8 +27,14 @@ export function upsertPeer(params: {
     "persistent-keepalive", String(config.persistentKeepalive),
   ];
   if (params.presharedKey) {
-    args.push("preshared-key", "/dev/stdin");
-    execFileSync("wg", args, { input: params.presharedKey });
+    const tmp = join(tmpdir(), `wgctl-psk-${randomBytes(8).toString("hex")}`);
+    try {
+      writeFileSync(tmp, params.presharedKey, { mode: 0o600 });
+      args.push("preshared-key", tmp);
+      execFileSync("wg", args);
+    } finally {
+      try { unlinkSync(tmp); } catch { /* best-effort */ }
+    }
   } else {
     execFileSync("wg", args);
   }
