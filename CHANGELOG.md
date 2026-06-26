@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.6.1...v1.7.0) (2026-06-26)
+
+
+### Features
+
+* **install:** add hosted Debian installer ([5444b00](https://github.com/AlexanderSlaa/wgctl/commit/5444b003a22ac12cc1eedde5945fec550071048c))
+
 ## [1.6.1](https://github.com/AlexanderSlaa/wgctl/compare/v1.6.0...v1.6.1) (2026-06-26)
 
 
