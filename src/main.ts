@@ -9,6 +9,8 @@ const ROOT_REQUIRED_COMMANDS = new Set([
   "service",
   "setup",
   "join",
+  "up",
+  "down",
   "uninstall",
 ]);
 
@@ -45,6 +47,10 @@ Joining the overlay (run on any peer machine, as root):
                               enable wg-quick@<iface> via systemd.
   wgctl join rm [--interface <name>] [-y]
                               Stop the tunnel and remove its config.
+  wgctl up [--interface <name>]
+                              Start a stopped tunnel (hub or joined peer).
+  wgctl down [--interface <name>]
+                              Stop a running tunnel without removing its config.
 
 Commands that configure the WireGuard interface (serve, status, peer, setup)
 require root / CAP_NET_ADMIN. If you run one without it, wgctl re-runs
@@ -73,6 +79,12 @@ async function main(): Promise<void> {
       break;
     case "join":
       await (await import("./commands/join.js")).joinCommand(args);
+      break;
+    case "up":
+      (await import("./commands/updown.js")).upCommand(args);
+      break;
+    case "down":
+      (await import("./commands/updown.js")).downCommand(args);
       break;
     case "service":
       await (await import("./commands/admin/service.js")).serviceCommand(args);
