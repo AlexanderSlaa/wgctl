@@ -4,6 +4,7 @@ import { realpathSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { askText, askChoice } from "../../client/prompts.js";
 import { isValidCidr, hostAtOffset, parseCidr } from "../../shared/cidr.js";
+import { ensureNativeAddon } from "../../shared/ensure-addon.js";
 
 function detectPublicHost(): string | undefined {
   for (const addrs of Object.values(networkInterfaces())) {
@@ -65,48 +66,13 @@ function stopIfActive(unitName: string): boolean {
   return false;
 }
 
-function globalNpmPrefix(): string {
-  const binPath = realpathSync(process.argv[1]);
-  const idx = binPath.lastIndexOf("/node_modules/");
-  if (idx !== -1) return binPath.slice(0, idx);
-  const result = spawnSync("npm", ["config", "get", "prefix"], { encoding: "utf8" });
-  return result.stdout.trim();
-}
-
-async function checkNativeModule(): Promise<boolean> {
-  try {
-    await import("@sourceregistry/node-wireguard");
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export async function setupCommand(args: string[]): Promise<void> {
   const force = args.includes("--force") || args.includes("-f");
   const ifaceFlagIdx = args.findIndex((a) => a === "--interface" || a === "-i");
   const ifaceFlag = ifaceFlagIdx !== -1 ? args[ifaceFlagIdx + 1] : undefined;
 
-  // Step 0: ensure native module is built
-  if (!(await checkNativeModule())) {
-    console.log("Native WireGuard addon not built (npm install-scripts were likely skipped).");
-    console.log("Building now — this requires a C++ compiler and build tools...\n");
-    const prefix = globalNpmPrefix();
-    const result = spawnSync("npm", ["rebuild", "@sourceregistry/node-wireguard", `--prefix=${prefix}`], {
-      stdio: "inherit",
-    });
-    if (result.status !== 0) {
-      console.error(
-        "\nBuild failed. Ensure build tools are installed:\n\n" +
-          "  Debian/Ubuntu:  apt-get install -y build-essential python3\n" +
-          "  Fedora/RHEL:    dnf install -y gcc-c++ python3 make\n\n" +
-          "Then re-run: wgctl setup\n",
-      );
-      process.exitCode = 1;
-      return;
-    }
-    console.log("\nBuild OK.\n");
-  }
+  // Step 0: ensure native module is built (build and re-exec if scripts were skipped at install)
+  await ensureNativeAddon();
 
   // Step 1: interface name
   let iface: string;

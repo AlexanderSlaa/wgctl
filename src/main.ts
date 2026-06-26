@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 import { checkForUpdate } from "./version-check.js";
 import { ensureRoot } from "./elevate.js";
+import { ensureNativeAddon } from "./shared/ensure-addon.js";
 
 const ROOT_REQUIRED_COMMANDS = new Set(["serve", "connect", "up", "status", "down", "user", "network", "peer", "service", "init", "setup"]);
+// Subset of ROOT_REQUIRED_COMMANDS that actually load the native addon — needs ensureNativeAddon().
+// "setup" handles its own check internally.
+const NATIVE_ADDON_COMMANDS = new Set(["serve", "connect", "up", "status", "down", "init"]);
 
 const HELP = `wgctl — orchestrated WireGuard tunnels
 
@@ -58,7 +62,7 @@ get a plain permission error instead).
 // Commands are imported lazily (inside each case) rather than statically at
 // the top of this file. Most of them transitively load the native
 // @sourceregistry/node-wireguard addon, which dynamically links against
-// libmnl/libsodium at runtime — if those shared libraries aren't installed,
+// libmnl/libcrypto at runtime — if those shared libraries aren't installed,
 // loading fails immediately. Lazy imports mean that failure only happens for
 // commands that actually need netlink access; pure-HTTP commands (login,
 // networks, update, ...) keep working regardless, and the error is caught
@@ -68,6 +72,10 @@ async function main(): Promise<void> {
 
   if (command && ROOT_REQUIRED_COMMANDS.has(command)) {
     ensureRoot(); // re-execs under sudo and exits if not already root
+  }
+
+  if (command && NATIVE_ADDON_COMMANDS.has(command)) {
+    await ensureNativeAddon(); // builds addon if skipped at install time, then re-execs
   }
 
   switch (command) {
@@ -129,9 +137,11 @@ main().catch((err) => {
   if (err?.code === "ERR_DLOPEN_FAILED" && /\.so(\.\d+)?: cannot open shared object file/.test(err.message ?? "")) {
     console.error(
       `${err.message}\n\n` +
-        "wgctl's native WireGuard addon needs the libmnl and libsodium runtime libraries installed " +
-        "(not the full build toolchain — just the shared libraries). On Debian/Ubuntu:\n\n" +
-        "  apt-get update && apt-get install -y --no-install-recommends libmnl0 libsodium23\n",
+        "wgctl's native WireGuard addon needs the libmnl and libssl runtime libraries " +
+        "(not the full build toolchain — just the shared libraries):\n\n" +
+        "  Debian/Ubuntu:  apt-get install -y libmnl0 libssl3\n" +
+        "  Fedora/RHEL:    dnf install -y libmnl openssl-libs\n" +
+        "  Alpine:         apk add libmnl openssl\n",
     );
   } else {
     console.error(err instanceof Error ? err.message : err);
