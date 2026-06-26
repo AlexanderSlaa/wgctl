@@ -10,25 +10,23 @@
 
 </div>
 
-A single binary that's both the WireGuard orchestration server and the
-terminal client. Run `wgctl serve` on the box that should act as the VPN
-hub; run `wgctl login` / `wgctl connect` on any machine that wants to join.
-Users authenticate with a username/password, pick which predefined networks
-they're authorized to connect to, optionally advertise local subnets behind
-their own machine, and the config exchange + tunnel setup on both ends
-happens automatically over HTTPS — no hand-written WireGuard config files.
+A CLI tool for running a WireGuard overlay network. One server acts as the
+hub; any number of peers join it with a single command. All peers share a
+flat tunnel subnet and can reach each other through the hub — no hand-written
+WireGuard configs required.
+
+**Requirements:** Node.js 22+, Linux, `wireguard-tools` (`wg` and `wg-quick`).
 
 ## Install
 
-On a fresh Debian/Ubuntu server, the quickest path is the hosted installer:
+On a fresh Debian/Ubuntu server:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/AlexanderSlaa/wgctl/main/scripts/install.sh | sudo bash
 ```
 
-It installs the Debian runtime packages, ensures Node.js 22 is available,
-installs `wgctl` from npm, and then starts `wgctl setup`. To install the
-binary without starting setup, run:
+This installs `wireguard-tools`, ensures Node.js 22 is available, installs
+`wgctl` from npm, and starts `wgctl setup`. To install without running setup:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/AlexanderSlaa/wgctl/main/scripts/install.sh | sudo env RUN_SETUP=0 bash
@@ -38,184 +36,145 @@ Manual install:
 
 ```sh
 npm install -g wgctl
+apt-get install -y wireguard-tools iptables   # if not already installed
 ```
 
-Requires Node.js 22+ and Linux (the native WireGuard control library talks
-directly to the kernel via netlink — no `wg`/`wg-quick` binary needed).
-`serve`, `connect`, `up`, `status`, `down`, and the server administration
-commands all need root / `CAP_NET_ADMIN` — if you run one without it, wgctl
-re-runs itself under `sudo` automatically rather than just erroring (set
-`WGCTL_NO_SUDO=1` to get the plain permission error instead, e.g. for
-scripted use where an unexpected password prompt would just hang).
+Commands that configure WireGuard (`serve`, `peer`, `status`, `setup`)
+require root / `CAP_NET_ADMIN`. If you run one without it, wgctl re-runs
+itself under `sudo` automatically. Set `WGCTL_NO_SUDO=1` to disable this
+and get a plain permission error instead.
 
-On x86_64/aarch64 Linux, installing needs no compiler or native build tools —
-but the native addon still dynamically links against `libmnl`/`libcrypto` at
-**runtime**, so if `wgctl` fails immediately with `cannot open shared object
-file`, install just those two shared libraries (no headers, no compiler):
+## Hub server setup
+
+Run this once on the machine that will act as the central hub:
 
 ```sh
-apt-get update && apt-get install -y --no-install-recommends libmnl0 openssl iptables procps
+sudo wgctl setup
 ```
 
-(or run `scripts/install-runtime-deps.sh` from the repo). On a platform
-without a published prebuild, `npm install` instead builds from source and
-needs the full toolchain — see `scripts/install-native-deps.sh`.
+The wizard asks for the WireGuard UDP port (default 51820), the tunnel
+subnet (default `10.88.0.0/24`), the public IP/hostname peers will connect
+to, and whether to start the systemd service now. It writes
+`/etc/wireguard/wg0.conf`, an env file, and a systemd unit, then starts the
+service.
 
-Every command (except `serve`, which doesn't want to hit npm on every
-restart) checks once a day whether a newer version is on npm and prints a
-one-line notice if so — it never blocks or delays the command's own output.
-Run `wgctl update` (or `sudo wgctl update` if needed for permissions) to
-install the latest version — it asks for confirmation first (`-y` to skip).
+### Running as a systemd service
 
-To clean up an installed server later, run `sudo wgctl uninstall`. It stops
-and removes wgctl systemd units, service environment files, runtime
-interfaces, and wgctl's forwarding rule, but leaves databases, TLS keys, and
-WireGuard config files in place unless you pass `--purge-data`. Add `--npm`
-if you also want it to run `npm uninstall -g wgctl` after cleanup.
-
-Installing the new files never by itself interrupts a running `wgctl serve`
-or any existing WireGuard tunnel — the kernel keeps `wg0` and its peers up
-independently of the wgctl process. The update only takes effect once you
-restart the service (`sudo systemctl restart wgctl`), and that restart briefly
-drops the HTTPS control-plane API for a few seconds (so a login/connect/
-registration in progress at that exact moment would need to retry) —
-existing tunnels are unaffected throughout, since the server's bootstrap
-reuses `wg0` rather than recreating it when the key already matches.
-
-## Running the server
+`wgctl setup` installs and starts the service for you. You can also manage
+it directly:
 
 ```sh
-sudo PUBLIC_HOST=<this server's public IP or hostname> wgctl serve
-```
-
-By default the HTTPS control-plane API listens on all interfaces, port
-8443. Override with `--host`/`--port` (or the `HOST`/`PORT` environment
-variables) if you need it bound to a specific address or a different port:
-
-```sh
-sudo wgctl serve --host 127.0.0.1 --port 9443   # e.g. behind your own reverse proxy
-```
-
-On first run this:
-- generates a self-signed TLS certificate at `/etc/wgctl/tls/` if one doesn't exist,
-- creates `/etc/wgctl/db.sqlite` (users, networks, peers) if it doesn't exist,
-- **takes over the existing WireGuard interface on `wg0`/port 51820** if one
-  is already configured by hand (e.g. via `wg-quick`): it reuses the existing
-  private key and re-asserts any peers found in `/etc/wireguard/wg0.conf` as
-  permanent "static" peers the API can never delete or modify, then manages
-  additional peers registered through the API alongside them.
-
-`PUBLIC_HOST` is optional — if unset, `wgctl` auto-detects the first
-non-internal IPv4 address and warns about it. Set it explicitly if this box
-has multiple interfaces, sits behind NAT, or clients should use a hostname.
-
-### Running as a systemd service (so it survives a reboot)
-
-WireGuard interfaces created via netlink only exist in the kernel — they
-disappear on reboot until something runs `wgctl serve` again. `wgctl
-service` manages a systemd unit that does that automatically:
-
-```sh
-sudo wgctl service enable     # installs the unit if needed, starts it now and on every boot
+sudo wgctl service enable     # start now and on every boot
 sudo wgctl service status
-sudo wgctl service logs -f    # journalctl -u wgctl, follow mode
-sudo wgctl service disable    # stop and remove from boot (unit file is kept)
-sudo wgctl service uninstall  # stop, disable, and delete the unit + env file — asks to confirm (-y to skip)
+sudo wgctl service logs -f
+sudo wgctl service disable
+sudo wgctl service uninstall  # stop, disable, delete unit (-y to skip prompt)
 ```
 
-Environment variables (`PUBLIC_HOST`, `PORT`, etc.) for the service go in
-`/etc/wgctl/wgctl.env`, created by `wgctl service install`/`enable`.
+### Adding peers
 
-### Managing users and networks
-
-There's no web UI — manage everything from the same binary, run locally on
-the server as root:
+Each peer gets a unique tunnel IP allocated from the hub's subnet. Run on
+the hub:
 
 ```sh
-sudo wgctl user add alice <password>          # create a user
-sudo wgctl user passwd alice                  # change a password
-sudo wgctl user rm alice                      # remove a user (revokes their tunnel access too)
-sudo wgctl user ls
-
-sudo wgctl network add office-lan 192.168.10.0/24 "Office LAN"
-sudo wgctl network grant alice office-lan     # authorize a user for a network
-sudo wgctl network revoke alice office-lan
-sudo wgctl network ls
-
-sudo wgctl peer add alice-phone --network office-lan
-# prints a standard WireGuard config you can import into the WireGuard app
-
-sudo wgctl peer add router --network office-lan --advertise 192.168.50.0/24 --output router.conf
-# writes a config for devices that can't run the wgctl CLI
-
-sudo wgctl peer add server-b --join-token
-# prints a one-line `sudo wgctl join ...` command to paste on another server
-
-sudo wgctl peer ls                            # every registered peer, with live handshake status
-sudo wgctl peer rm <id>                       # revoke a single peer/device without removing its user
+sudo wgctl peer add <label> --join-token
 ```
 
-### Joining two servers
+This prints a one-liner to paste on the peer machine. The token is
+one-time-use and contains everything the peer needs — no further
+communication with the hub is required after joining.
 
-For the simplest server-to-server tunnel, run this on Server A:
+To export a standard `.conf` file instead (for use with any WireGuard
+client, including mobile apps):
 
 ```sh
-sudo wgctl peer add server-b --join-token
+sudo wgctl peer add <label> --output peer.conf
+# or print to stdout:
+sudo wgctl peer add <label>
 ```
 
-Then paste the printed `sudo wgctl join ...` command on Server B. Server B
-writes `/etc/wireguard/wg0.conf`, creates a `wgctl-wg0` systemd service, and
-starts it so the tunnel survives reboot. The join token is one-time-use on the
-receiving server, so a second paste of the same token will be rejected.
-
-To remove that joined connection from Server B later:
+Other peer management:
 
 ```sh
-sudo wgctl join rm
+sudo wgctl peer ls              # list all peers with tunnel IPs and last handshake times
+sudo wgctl peer rm <id|label>   # remove a peer
+sudo wgctl peer token <label>   # re-generate a join token for an existing peer
 ```
 
-This stops/disables `wgctl-wg0` and removes its unit, env file, WireGuard
-config, local SQLite DB, and runtime interface.
+### Overlay routing
 
-## Connecting as a client
+Every peer receives `AllowedIPs = <tunnel-subnet>` (e.g. `10.88.0.0/24`),
+so peer A can reach peer B at `10.88.0.B` by routing through the hub. The
+hub enables IP forwarding and an iptables FORWARD rule automatically.
+
+## Joining the overlay
+
+On any Linux machine that should join the network, paste the token printed
+by `wgctl peer add --join-token`:
 
 ```sh
-wgctl login --server https://<host>:8443    # no root needed
-wgctl networks                              # no root needed
-sudo wgctl connect                          # configures the local tunnel — needs root/CAP_NET_ADMIN
+sudo wgctl join 'wgctl-join-v1.<token>'
+```
+
+This writes `/etc/wireguard/wg0.conf` and enables `wg-quick@wg0` via
+systemd so the tunnel comes back up automatically after a reboot.
+
+To use a different interface name:
+
+```sh
+sudo wgctl join 'wgctl-join-v1.<token>' --interface wg1
+```
+
+To leave the overlay:
+
+```sh
+sudo wgctl join rm              # stops wg-quick@wg0 and removes the config
+sudo wgctl join rm --interface wg1
+```
+
+For non-Linux peers (mobile, Windows, macOS), use the `.conf` export on the
+hub and import it into the WireGuard app:
+
+```sh
+sudo wgctl peer add my-phone --output phone.conf
+```
+
+## Checking status
+
+On the hub:
+
+```sh
 sudo wgctl status
-sudo wgctl down
-sudo wgctl up                               # bring it back up later (after `down` or a reboot) without re-prompting
 ```
 
-`up` re-applies the same networks/subnets you picked with `connect` (fetched
-from the server, so a changed IP allocation or network grant is picked up
-too) — no interactive prompts, just `sudo wgctl up`.
+On a joined peer, use standard WireGuard tools:
 
-You can be logged in to more than one server — `login` stores a separate
-session per server. `networks`, `connect`, `up`, and `down` all accept
-`--server <url>` to pick which one; with no flag they use whichever server
-you most recently logged in to (or the only one, if there's just one).
+```sh
+sudo wg show wg0
+systemctl status wg-quick@wg0
+```
 
-The CLI pins the server's certificate fingerprint on first `login`
-(trust-on-first-use) and verifies it on every later request, rather than
-disabling TLS verification outright.
+## Updating
 
-**Don't run `wgctl serve` and `wgctl connect` against each other on the same
-machine/interface** — both default to managing an interface named `wg0`, so
-running the client against a server on the same box will reconfigure (and
-effectively replace the identity of) the very interface the server manages.
+```sh
+sudo wgctl update    # checks npm for a newer version, asks for confirmation (-y to skip)
+```
 
-## Known limitations
+Installing a new version does not interrupt running tunnels — the kernel
+keeps WireGuard interfaces and peers up independently of the wgctl process.
+The update takes effect once you restart the service:
 
-- No NAT/internet-egress support — this mirrors a hand-configured
-  hub-and-spoke setup, relaying peer-to-peer traffic through the server, not
-  shared internet access.
-- TLS is self-signed with CLI-side fingerprint pinning, not a CA-issued
-  certificate.
-- The masked-password prompt (`wgctl login`, `user passwd`) requires a real
-  interactive terminal — it can't be driven through a plain non-interactive
-  pipe.
+```sh
+sudo systemctl restart wgctl-wg0
+```
+
+## Uninstalling
+
+```sh
+sudo wgctl uninstall              # stops services, removes unit/env files
+sudo wgctl uninstall --purge-data # also removes the SQLite DB and WireGuard conf
+sudo wgctl uninstall --npm        # also runs npm uninstall -g wgctl
+```
 
 ## Contributing
 
