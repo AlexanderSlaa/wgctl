@@ -1,3 +1,15 @@
+# [1.12.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.11.0...v1.12.0) (2026-06-26)
+
+
+### Bug Fixes
+
+* **service:** target wgctl-<iface> to match what setup installs ([6c6920a](https://github.com/AlexanderSlaa/wgctl/commit/6c6920ad41905d206c0bf858028c0e31e4af4ed3))
+
+
+### Features
+
+* replace serve daemon with wg-quick for persistence ([a9782d5](https://github.com/AlexanderSlaa/wgctl/commit/a9782d5c9015b46d485389e28a5bd812695aa2bc))
+
 # [1.11.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.10.0...v1.11.0) (2026-06-26)
 
 
