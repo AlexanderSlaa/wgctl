@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# One-command Debian/Ubuntu installer for a fresh wgctl server.
+# One-command Debian/Ubuntu installer for a fresh wgctl hub server.
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/AlexanderSlaa/wgctl/main/scripts/install.sh | sudo bash
 #
 # Optional environment:
-#   WGCTL_VERSION=1.6.0  Install a specific npm version instead of latest.
-#   RUN_SETUP=0         Install only; do not launch `wgctl setup`.
+#   WGCTL_VERSION=1.9.0  Install a specific npm version instead of latest.
+#   RUN_SETUP=0          Install only; do not launch `wgctl setup`.
 set -euo pipefail
 
 WGCTL_VERSION="${WGCTL_VERSION:-latest}"
@@ -45,16 +45,14 @@ node_major() {
   node -p "Number(process.versions.node.split('.')[0])" 2>/dev/null || printf '0\n'
 }
 
-log "Installing wgctl runtime dependencies"
+log "Installing dependencies"
 apt-get update
 apt-get install -y --no-install-recommends \
   ca-certificates \
   curl \
   gnupg \
-  libmnl0 \
-  openssl \
-  iptables \
-  procps
+  wireguard-tools \
+  iptables
 
 if ! command -v node >/dev/null 2>&1 || [ "$(node_major)" -lt "$NODE_MAJOR" ]; then
   log "Installing Node.js ${NODE_MAJOR}.x"
@@ -87,5 +85,5 @@ if [ -r /dev/tty ] && [ -w /dev/tty ]; then
   wgctl setup < /dev/tty > /dev/tty
 else
   log "Install complete"
-  printf 'No interactive terminal was available. Run setup manually: sudo wgctl setup\n'
+  printf 'No interactive terminal available. Run setup manually: sudo wgctl setup\n'
 fi
