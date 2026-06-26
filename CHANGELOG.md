@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/AlexanderSlaa/wgctl/compare/v1.6.0...v1.6.1) (2026-06-26)
+
+
+### Bug Fixes
+
+* **cli:** report missing runtime dependencies clearly ([a76cf64](https://github.com/AlexanderSlaa/wgctl/commit/a76cf64a0311a0fba9c00b794163323432d701b9))
+
 # [1.6.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.5.0...v1.6.0) (2026-06-26)
 
 
