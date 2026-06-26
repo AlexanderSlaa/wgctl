@@ -23,6 +23,12 @@ export interface SecureRequestOptions {
   expectedFingerprint?: string;
 }
 
+/** Connects to the server solely to capture its certificate fingerprint — no auth data is sent. */
+export async function probeCertFingerprint(serverUrl: string): Promise<string> {
+  const res = await secureRequest(new URL("/", serverUrl).toString(), { method: "HEAD" });
+  return res.fingerprint;
+}
+
 export function secureRequest(url: string, options: SecureRequestOptions = {}): Promise<SecureResponse> {
   const target = new URL(url);
 

@@ -15,6 +15,14 @@ export function createSession(username: string): { token: string; expiresAt: str
   return { token, expiresAt };
 }
 
+export function deleteSession(token: string): void {
+  getDb().prepare("DELETE FROM sessions WHERE token = ?").run(token);
+}
+
+export function cleanupExpiredSessions(): void {
+  getDb().prepare("DELETE FROM sessions WHERE expires_at < ?").run(new Date().toISOString());
+}
+
 export function lookupSession(token: string): Session | undefined {
   const row = getDb().prepare("SELECT username, expires_at FROM sessions WHERE token = ?").get(token) as
     | { username: string; expires_at: string }

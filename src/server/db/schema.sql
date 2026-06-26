@@ -42,3 +42,11 @@ CREATE TABLE IF NOT EXISTS sessions (
   username    TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
   expires_at  TEXT NOT NULL
 );
+
+-- Tracks one-time bootstrap events. Key "setup_token_hash:<sha256>" records
+-- that the setup token with that hash has been consumed and must not be
+-- accepted again. Using the hash (not the plaintext) avoids storing secrets.
+CREATE TABLE IF NOT EXISTS meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);

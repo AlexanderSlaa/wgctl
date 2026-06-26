@@ -2,6 +2,7 @@ import { bootstrapWireGuard } from "./wg/bootstrap.js";
 import { ensureTlsCertificate } from "./tls.js";
 import { createApp } from "./app.js";
 import { config } from "./config.js";
+import { cleanupExpiredSessions } from "./auth/session.js";
 
 function parseFlag(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
@@ -10,6 +11,7 @@ function parseFlag(args: string[], name: string): string | undefined {
 
 export async function serveCommand(args: string[] = []): Promise<void> {
   ensureTlsCertificate();
+  cleanupExpiredSessions();
 
   try {
     await bootstrapWireGuard();

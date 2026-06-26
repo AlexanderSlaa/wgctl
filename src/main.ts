@@ -3,7 +3,20 @@ import { checkForUpdate } from "./version-check.js";
 import { ensureRoot } from "./elevate.js";
 import { ensureNativeAddon } from "./shared/ensure-addon.js";
 
-const ROOT_REQUIRED_COMMANDS = new Set(["serve", "connect", "up", "status", "down", "user", "network", "peer", "service", "init", "setup"]);
+const ROOT_REQUIRED_COMMANDS = new Set([
+  "serve",
+  "connect",
+  "up",
+  "status",
+  "down",
+  "user",
+  "network",
+  "peer",
+  "service",
+  "init",
+  "setup",
+  "uninstall",
+]);
 // Subset of ROOT_REQUIRED_COMMANDS that actually load the native addon — needs ensureNativeAddon().
 // "setup" handles its own check internally.
 const NATIVE_ADDON_COMMANDS = new Set(["serve", "connect", "up", "status", "down", "init"]);
@@ -38,10 +51,16 @@ Server administration (run locally on the server, as root):
   wgctl service uninstall [-y]             Stop, disable, and delete the unit (asks to confirm)
   wgctl service status                     Show systemd status
   wgctl service logs [-f] [-n N]           Show logs via journalctl
+  wgctl uninstall [-y] [--purge-data]      Stop services and remove wgctl service artifacts
   wgctl update [-y]                        Check npm for a newer version and install it (asks to confirm)
 
 Client (run on the machine that wants to connect):
-  wgctl login [--server <url>]      Log in with username/password
+  wgctl login [--server <url>] [--setup-token [token]] [--fingerprint <sha256>]
+                                      Log in with username/password or the one-time setup token.
+                                      --fingerprint pins the expected server cert fingerprint
+                                      (copy from \`wgctl setup\` output) to prevent MITM on first
+                                      login; without it the fingerprint is shown for confirmation.
+  wgctl logout [--server <url>]     Revoke the session on the server and delete local credentials
   wgctl networks [--server <url>]   List networks available to your account
   wgctl connect [--server <url>]    Select networks and bring up the local tunnel (requires root)
   wgctl up [--server <url>]         Re-apply the existing registration and bring the tunnel back up (requires root)
@@ -91,6 +110,9 @@ async function main(): Promise<void> {
     case "login":
       await (await import("./client/commands/login.js")).loginCommand(args);
       break;
+    case "logout":
+      await (await import("./client/commands/logout.js")).logoutCommand(args);
+      break;
     case "networks":
       await (await import("./client/commands/networks.js")).networksCommand(args);
       break;
@@ -117,6 +139,9 @@ async function main(): Promise<void> {
       break;
     case "service":
       await (await import("./commands/admin/service.js")).serviceCommand(args);
+      break;
+    case "uninstall":
+      await (await import("./commands/admin/uninstall.js")).uninstallCommand(args);
       break;
     case "update":
       await (await import("./commands/update.js")).updateCommand(args);

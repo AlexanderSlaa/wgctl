@@ -16,6 +16,11 @@ import { config } from "../config.js";
 
 export const peersRoutes = new Router();
 
+const MAX_NETWORK_IDS = 16;
+const MAX_ADVERTISED_SUBNETS = 8;
+// WireGuard keys are Curve25519 public keys: 32 bytes encoded as standard base64 (44 chars, 1 padding '=').
+const WG_KEY_RE = /^[A-Za-z0-9+/]{43}=$/;
+
 function subnetOverlapsExisting(candidate: string, excludeUsername: string): boolean {
   for (const n of listAllNetworks()) {
     if (cidrsOverlap(candidate, n.cidr)) return true;
@@ -34,6 +39,27 @@ peersRoutes.POST(
       error(400, { message: "publicKey, networkIds[], advertisedSubnets[] are required" });
     }
 
+    // Validate public key format: 32-byte Curve25519 key, standard base64
+    if (typeof body.publicKey !== "string" || !WG_KEY_RE.test(body.publicKey)) {
+      error(400, { message: "publicKey must be a valid 32-byte base64-encoded WireGuard key" });
+    }
+
+    // Array size limits
+    if (body.networkIds.length > MAX_NETWORK_IDS) {
+      error(400, { message: `At most ${MAX_NETWORK_IDS} networks may be selected at once` });
+    }
+    if (body.advertisedSubnets.length > MAX_ADVERTISED_SUBNETS) {
+      error(400, { message: `At most ${MAX_ADVERTISED_SUBNETS} subnets may be advertised at once` });
+    }
+
+    // Network IDs must be positive integers with no duplicates
+    if (!body.networkIds.every((id) => Number.isInteger(id) && id > 0)) {
+      error(400, { message: "networkIds must be positive integers" });
+    }
+    if (new Set(body.networkIds).size !== body.networkIds.length) {
+      error(400, { message: "networkIds must not contain duplicates" });
+    }
+
     const user = findUserByUsername(event.context.user.username)!;
     const authorized = new Set(listNetworksForUser(user.id).map((n) => n.id));
     for (const id of body.networkIds) {
@@ -43,8 +69,13 @@ peersRoutes.POST(
     }
 
     for (const subnet of body.advertisedSubnets) {
-      if (!isValidCidr(subnet)) {
+      if (typeof subnet !== "string" || !isValidCidr(subnet)) {
         error(400, { message: `Invalid CIDR in advertisedSubnets: ${subnet}` });
+      }
+      // Reject overly broad prefixes (/0–/7) to prevent accidental default-route advertisements
+      const prefixLen = parseInt(subnet.split("/")[1] ?? "", 10);
+      if (Number.isNaN(prefixLen) || prefixLen < 8) {
+        error(400, { message: `Advertised subnet ${subnet} must have a prefix length of /8 or longer` });
       }
     }
     for (const subnet of body.advertisedSubnets) {

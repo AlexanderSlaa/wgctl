@@ -38,10 +38,27 @@ async function request<T>(
   return { data, fingerprint: res.fingerprint };
 }
 
-/** First contact with the server — captures (does not yet verify) the cert fingerprint for TOFU pinning. */
-export async function login(serverUrl: string, body: LoginRequest): Promise<LoginResponse & { certFingerprint: string }> {
-  const { data, fingerprint } = await request<LoginResponse>(serverUrl, "/api/auth/login", { method: "POST", body });
+/**
+ * Authenticates against the server.
+ * `expectedFingerprint` must be provided and pre-verified by the caller — credentials
+ * are only sent once the TLS certificate has been confirmed out-of-band.
+ */
+export async function login(
+  serverUrl: string,
+  body: LoginRequest,
+  expectedFingerprint: string,
+): Promise<LoginResponse & { certFingerprint: string }> {
+  const { data, fingerprint } = await request<LoginResponse>(serverUrl, "/api/auth/login", {
+    method: "POST",
+    body,
+    expectedFingerprint,
+  });
   return { ...data, certFingerprint: fingerprint };
+}
+
+/** Revokes the current session on the server. Best-effort — errors are ignored. */
+export async function logout(serverUrl: string, token: string, expectedFingerprint: string): Promise<void> {
+  await request<void>(serverUrl, "/api/auth/session", { method: "DELETE", token, expectedFingerprint });
 }
 
 export async function getNetworks(serverUrl: string, token: string, expectedFingerprint: string): Promise<NetworksResponse> {

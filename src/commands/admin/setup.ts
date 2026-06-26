@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { networkInterfaces } from "node:os";
+import { networkInterfaces, hostname } from "node:os";
 import { askText, askChoice } from "../../client/prompts.js";
 import { isValidCidr, hostAtOffset, parseCidr } from "../../shared/cidr.js";
 import { ensureNativeAddon } from "../../shared/ensure-addon.js";
@@ -83,6 +84,17 @@ export async function setupCommand(args: string[]): Promise<void> {
     iface = answer || "wg0";
   }
 
+  // Validate: must start with a letter, 1–15 chars, letters/digits/underscore/hyphen only.
+  // This prevents path traversal and systemd unit name injection.
+  if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,14}$/.test(iface)) {
+    console.error(
+      "Interface name must start with a letter, be 1–15 characters, and contain only " +
+        "letters, digits, underscores, or hyphens.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   // Already-configured check
   if (!force) {
     const state = checkState(iface);
@@ -135,6 +147,13 @@ export async function setupCommand(args: string[]): Promise<void> {
     : "Public hostname or IP for clients (leave empty to auto-detect at runtime): ";
   const publicHostInput = await askText(publicHostPrompt);
   const publicHost = publicHostInput || detected || "";
+
+  // Reject characters that would corrupt the env file or systemd unit
+  if (publicHost && /[\n\r\0=]/.test(publicHost)) {
+    console.error("Public host contains invalid characters (newlines, null bytes, or '=' are not allowed).");
+    process.exitCode = 1;
+    return;
+  }
 
   // Step 5: HTTPS API port
   const apiPortStr = (await askText(`HTTPS control-plane port [${defaults.apiPort}]: `)) || String(defaults.apiPort);
@@ -205,6 +224,7 @@ Summary:
   // Env file
   const envDir = "/etc/wgctl";
   const envFilePath = `${envDir}/${iface}.env`;
+  const setupToken = randomBytes(32).toString("base64url");
   mkdirSync(envDir, { recursive: true });
   const envLines = [
     `# wgctl environment for interface ${iface}`,
@@ -216,10 +236,37 @@ Summary:
     `WG_SERVER_ADDRESS=${serverAddress}`,
     `PORT=${apiPort}`,
     `DB_PATH=${envDir}/${iface}.sqlite`,
+    `WGCTL_SETUP_TOKEN=${setupToken}`,
+    `WGCTL_SETUP_USERNAME=admin`,
   ];
   if (publicHost) envLines.push(`PUBLIC_HOST=${publicHost}`);
   writeFileSync(envFilePath, envLines.join("\n") + "\n", { mode: 0o600 });
   console.log(`Wrote ${envFilePath}`);
+
+  // TLS certificate — generate before the service starts so we can print the fingerprint here.
+  // The server's ensureTlsCertificate() would do this on first launch, but pre-generating
+  // lets us show the fingerprint for use with `wgctl login --fingerprint`.
+  const tlsCertPath = "/etc/wgctl/tls/cert.pem";
+  const tlsKeyPath = "/etc/wgctl/tls/key.pem";
+  if (!existsSync(tlsCertPath) || !existsSync(tlsKeyPath)) {
+    mkdirSync("/etc/wgctl/tls", { recursive: true });
+    execFileSync(
+      "openssl",
+      [
+        "req", "-x509", "-newkey", "rsa:4096", "-nodes",
+        "-keyout", tlsKeyPath, "-out", tlsCertPath,
+        "-days", "3650", "-subj", `/CN=${publicHost || hostname()}`,
+      ],
+      { stdio: ["ignore", "ignore", "inherit"] },
+    );
+    chmodSync(tlsKeyPath, 0o600);
+    console.log(`Generated TLS certificate at ${tlsCertPath}`);
+  }
+  const certFpLine = execFileSync("openssl", ["x509", "-in", tlsCertPath, "-noout", "-fingerprint", "-sha256"])
+    .toString()
+    .trim();
+  // Output format: "SHA256 Fingerprint=XX:XX:..." — extract value after '='
+  const certFingerprint = certFpLine.includes("=") ? certFpLine.split("=").slice(1).join("=") : certFpLine;
 
   // Systemd unit
   const unitPath = `/etc/systemd/system/${unitName}.service`;
@@ -252,6 +299,12 @@ Setup complete for ${iface}.
   Logs:    journalctl -u ${unitName} -f
   Restart: systemctl restart ${unitName}
 
-Next: add an admin user with  wgctl user add <username> <password> --admin
+Server TLS fingerprint (SHA-256):
+  ${certFingerprint}
+
+Log in from a client machine (copy-paste this command):
+  wgctl login --server https://${publicHost || "<server-host>"}:${apiPort} --setup-token ${setupToken} --fingerprint ${certFingerprint}
+
+The setup token is one-time-use and is stored in ${envFilePath} (mode 0600).
 `);
 }
