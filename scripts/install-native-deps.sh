@@ -3,7 +3,7 @@
 # without a published @sourceregistry/node-wireguard prebuild (x86_64/aarch64
 # Linux have one; `npm install` then builds from source automatically and
 # needs this). If you're on a supported platform and just hit a missing
-# libmnl/libsodium *runtime* error, you want scripts/install-runtime-deps.sh
+# libmnl/OpenSSL *runtime* error, you want scripts/install-runtime-deps.sh
 # instead — it's much lighter (no compiler, no headers).
 set -euo pipefail
 
@@ -12,4 +12,4 @@ apt-get install -y --no-install-recommends \
   build-essential \
   pkg-config \
   libmnl-dev \
-  libsodium-dev
+  libssl-dev

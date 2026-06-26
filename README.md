@@ -38,7 +38,7 @@ but the native addon still dynamically links against `libmnl`/`libcrypto` at
 file`, install just those two shared libraries (no headers, no compiler):
 
 ```sh
-apt-get update && apt-get install -y --no-install-recommends libmnl0 openssl
+apt-get update && apt-get install -y --no-install-recommends libmnl0 openssl iptables procps
 ```
 
 (or run `scripts/install-runtime-deps.sh` from the repo). On a platform

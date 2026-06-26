@@ -12,15 +12,36 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 
+function missingCommandError(command: string): Error {
+  return new Error(
+    `Required command \`${command}\` was not found.\n\n` +
+      "Install wgctl's runtime system dependencies, then restart the service:\n\n" +
+      "  Debian/Ubuntu:  apt-get update && apt-get install -y --no-install-recommends iptables procps\n" +
+      "  Fedora/RHEL:    dnf install -y iptables procps-ng\n" +
+      "  Alpine:         apk add iptables procps\n",
+  );
+}
+
 export function ensureForwardRule(iface: string): void {
   const check = spawnSync("iptables", ["-C", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT"]);
+  if (check.error && (check.error as NodeJS.ErrnoException).code === "ENOENT") {
+    throw missingCommandError("iptables");
+  }
   if (check.status !== 0) {
-    execFileSync("iptables", ["-A", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT"]);
+    try {
+      execFileSync("iptables", ["-A", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT"]);
+    } catch (err: any) {
+      if (err?.code === "ENOENT") throw missingCommandError("iptables");
+      throw err;
+    }
   }
 }
 
 export function removeForwardRule(iface: string): void {
   const check = spawnSync("iptables", ["-C", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT"]);
+  if (check.error && (check.error as NodeJS.ErrnoException).code === "ENOENT") {
+    return;
+  }
   if (check.status === 0) {
     execFileSync("iptables", ["-D", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT"]);
   }
@@ -28,7 +49,12 @@ export function removeForwardRule(iface: string): void {
 
 export function ensureIpForward(sysctlFile = "/etc/sysctl.d/99-wireguard-orchestrator.conf"): void {
   writeFileSync(sysctlFile, "net.ipv4.ip_forward = 1\n");
-  execFileSync("sysctl", ["-p", sysctlFile]);
+  try {
+    execFileSync("sysctl", ["-p", sysctlFile]);
+  } catch (err: any) {
+    if (err?.code === "ENOENT") throw missingCommandError("sysctl");
+    throw err;
+  }
 }
 
 /** Convenience: apply both the FORWARD rule and ip_forward sysctl for an interface. */
