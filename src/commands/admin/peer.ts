@@ -9,7 +9,7 @@ import { findUserByUsername } from "../../server/db/users.repo.js";
 
 function usage(): void {
   console.log(`Usage:
-  wgctl peer add <label> [--network <name>]... [--advertise <cidr>]... [--dns <servers>] [--endpoint <host:port>] [--output <file>]
+  wgctl peer add <label> [--network <name>]... [--advertise <cidr>]... [--dns <servers>] [--endpoint <host:port>] [--output <file>] [--join-token]
   wgctl peer ls
   wgctl peer rm <id> [--force]`);
 }
@@ -21,6 +21,7 @@ interface AddOptions {
   dns?: string;
   endpoint?: string;
   output?: string;
+  joinToken: boolean;
 }
 
 function readFlagValues(args: string[], longFlag: string): string[] {
@@ -46,10 +47,11 @@ function parseAddOptions(rest: string[]): AddOptions {
   const [label] = rest;
   if (!label || label.startsWith("--")) throw new Error("Usage: wgctl peer add <label> [--network <name>]...");
 
-  const supportedFlags = new Set(["--network", "--advertise", "--dns", "--endpoint", "--output"]);
+  const supportedFlags = new Set(["--network", "--advertise", "--dns", "--endpoint", "--output", "--join-token"]);
   for (let i = 1; i < rest.length; i++) {
     const arg = rest[i];
     if (!supportedFlags.has(arg)) throw new Error(`Unknown option: ${arg}`);
+    if (arg === "--join-token") continue;
     i++;
     if (!rest[i] || rest[i].startsWith("--")) throw new Error(`${arg} requires a value.`);
   }
@@ -62,6 +64,7 @@ function parseAddOptions(rest: string[]): AddOptions {
     dns: readOptionalFlag(flagArgs, "--dns"),
     endpoint: readOptionalFlag(flagArgs, "--endpoint"),
     output: readOptionalFlag(flagArgs, "--output"),
+    joinToken: flagArgs.includes("--join-token"),
   };
 }
 
@@ -126,6 +129,21 @@ function renderClientConfig(params: {
     `PersistentKeepalive = ${config.persistentKeepalive}`,
   );
   return lines.join("\n") + "\n";
+}
+
+function encodeJoinToken(params: {
+  label: string;
+  privateKey: string;
+  presharedKey: string;
+  clientAddress: string;
+  serverPublicKey: string;
+  endpoint: string;
+  allowedIPs: string[];
+  persistentKeepalive: number;
+  dns?: string;
+}): string {
+  const body = Buffer.from(JSON.stringify({ version: 1, ...params }), "utf8").toString("base64url");
+  return `wgctl-join-v1.${body}`;
 }
 
 export async function peerCommand(args: string[]): Promise<void> {
@@ -202,7 +220,22 @@ export async function peerCommand(args: string[]): Promise<void> {
       });
 
       console.log(`Created peer ${peer.id} (${options.label}).`);
-      if (options.output) {
+      if (options.joinToken) {
+        console.log("Run this on the other server:\n");
+        console.log(
+          `sudo wgctl join '${encodeJoinToken({
+            label: options.label,
+            privateKey,
+            presharedKey,
+            clientAddress,
+            serverPublicKey,
+            endpoint,
+            allowedIPs,
+            persistentKeepalive: config.persistentKeepalive,
+            dns: options.dns,
+          })}'`,
+        );
+      } else if (options.output) {
         try {
           writeFileSync(options.output, clientConfig, { mode: 0o600 });
         } catch (err) {

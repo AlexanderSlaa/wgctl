@@ -148,9 +148,33 @@ sudo wgctl peer add alice-phone --network office-lan
 sudo wgctl peer add router --network office-lan --advertise 192.168.50.0/24 --output router.conf
 # writes a config for devices that can't run the wgctl CLI
 
+sudo wgctl peer add server-b --join-token
+# prints a one-line `sudo wgctl join ...` command to paste on another server
+
 sudo wgctl peer ls                            # every registered peer, with live handshake status
 sudo wgctl peer rm <id>                       # revoke a single peer/device without removing its user
 ```
+
+### Joining two servers
+
+For the simplest server-to-server tunnel, run this on Server A:
+
+```sh
+sudo wgctl peer add server-b --join-token
+```
+
+Then paste the printed `sudo wgctl join ...` command on Server B. Server B
+writes `/etc/wireguard/wg0.conf`, creates a `wgctl-wg0` systemd service, and
+starts it so the tunnel survives reboot.
+
+To remove that joined connection from Server B later:
+
+```sh
+sudo wgctl join rm
+```
+
+This stops/disables `wgctl-wg0` and removes its unit, env file, WireGuard
+config, local SQLite DB, and runtime interface.
 
 ## Connecting as a client
 

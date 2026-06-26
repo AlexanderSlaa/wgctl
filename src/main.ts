@@ -15,6 +15,7 @@ const ROOT_REQUIRED_COMMANDS = new Set([
   "service",
   "init",
   "setup",
+  "join",
   "uninstall",
 ]);
 // Subset of ROOT_REQUIRED_COMMANDS that actually load the native addon — needs ensureNativeAddon().
@@ -47,6 +48,8 @@ Server administration (run locally on the server, as root):
                                             Generate a WireGuard app/device config
   wgctl peer ls                            List all registered peers (with live handshake status)
   wgctl peer rm <id> [--force]             Revoke a single peer/device without removing its user
+  wgctl join <join-token>                  Join this server to a peer token from another wgctl server
+  wgctl join rm [-y]                       Remove a joined server connection and service
   wgctl service install                    Write the systemd unit (without starting it)
   wgctl service enable                     Start now and on every boot
   wgctl service disable                    Stop and remove from boot
@@ -138,6 +141,9 @@ async function main(): Promise<void> {
       break;
     case "peer":
       await (await import("./commands/admin/peer.js")).peerCommand(args);
+      break;
+    case "join":
+      await (await import("./commands/join.js")).joinCommand(args);
       break;
     case "service":
       await (await import("./commands/admin/service.js")).serviceCommand(args);
