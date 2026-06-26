@@ -39,7 +39,7 @@ npm install -g wgctl
 apt-get install -y wireguard-tools iptables   # if not already installed
 ```
 
-Commands that configure WireGuard (`serve`, `peer`, `status`, `setup`)
+Commands that configure WireGuard (`peer`, `status`, `setup`)
 require root / `CAP_NET_ADMIN`. If you run one without it, wgctl re-runs
 itself under `sudo` automatically. Set `WGCTL_NO_SUDO=1` to disable this
 and get a plain permission error instead.
@@ -54,9 +54,9 @@ sudo wgctl setup
 
 The wizard asks for the WireGuard UDP port (default 51820), the tunnel
 subnet (default `10.88.0.0/24`), the public IP/hostname peers will connect
-to, and whether to start the systemd service now. It writes
-`/etc/wireguard/wg0.conf`, an env file, and a systemd unit, then starts the
-service.
+to, and whether to enable the service now. It writes `/etc/wireguard/wg0.conf`
+(with PostUp/PreDown forwarding rules built in) and enables `wg-quick@wg0`
+via systemd so the interface comes back up automatically after a reboot.
 
 ### Running as a systemd service
 
@@ -65,10 +65,13 @@ it directly:
 
 ```sh
 sudo wgctl service enable     # start now and on every boot
+sudo wgctl service disable    # stop and remove from boot
+sudo wgctl service start
+sudo wgctl service stop
+sudo wgctl service restart
 sudo wgctl service status
 sudo wgctl service logs -f
-sudo wgctl service disable
-sudo wgctl service uninstall  # stop, disable, delete unit (-y to skip prompt)
+sudo wgctl service uninstall [-y]   # disable and remove env file
 ```
 
 ### Adding peers
@@ -165,7 +168,7 @@ keeps WireGuard interfaces and peers up independently of the wgctl process.
 The update takes effect once you restart the service:
 
 ```sh
-sudo systemctl restart wgctl-wg0
+sudo wgctl service restart
 ```
 
 ## Uninstalling
