@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { listAllPeers, findPeerById, findPeerByLabel, deletePeer, createPeer } from "../../server/db/peers.repo.js";
 import { getDb } from "../../server/db/index.js";
-import { upsertPeer, removePeer, getLiveStatus, getPublicKey } from "../../server/wg/WgManager.js";
+import { upsertPeer, removePeer, getLiveStatus, getPublicKey, addPeerToConf, removePeerFromConf } from "../../server/wg/WgManager.js";
 import { config } from "../../server/config.js";
 
 function wgGenKey(): string {
@@ -106,6 +106,7 @@ function buildPeerOutput(params: {
     peer = createPeer({ label: params.label, publicKey: peerPublicKey, presharedKey: psk });
     try {
       upsertPeer({ publicKey: peer.public_key, presharedKey: psk, allowedIPs: [`${peer.tunnel_ip}/32`] });
+      addPeerToConf({ label: params.label, publicKey: peer.public_key, presharedKey: psk, allowedIPs: [`${peer.tunnel_ip}/32`], keepalive: config.persistentKeepalive });
     } catch (err) {
       deletePeer(peer.id);
       throw err;
@@ -242,6 +243,7 @@ export function peerCommand(args: string[]): void {
         return;
       }
       removePeer(peer.public_key);
+      removePeerFromConf(peer.public_key);
       deletePeer(peer.id);
       console.log(`Removed peer ${peer.id} (${peer.label}, ${peer.tunnel_ip}).`);
       return;

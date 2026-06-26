@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
-import { realpathSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { askText, askChoice } from "../../client/prompts.js";
 import { isValidCidr, hostAtOffset, parseCidr } from "../../shared/cidr.js";
@@ -29,29 +28,13 @@ function deriveDefaults(iface: string) {
   };
 }
 
-function buildUnitContent(iface: string, envFilePath: string, binPath: string): string {
-  return `[Unit]
-Description=wgctl WireGuard hub (${iface})
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=${binPath} serve
-Restart=on-failure
-RestartSec=2
-EnvironmentFile=-${envFilePath}
-
-[Install]
-WantedBy=multi-user.target
-`;
-}
 
 function checkState(iface: string) {
+  const unitEnabled = spawnSync("systemctl", ["is-enabled", "--quiet", `wg-quick@${iface}`], { stdio: "ignore" }).status === 0;
   return {
     confExists: existsSync(`/etc/wireguard/${iface}.conf`),
     envExists: existsSync(`/etc/wgctl/${iface}.env`),
-    unitExists: existsSync(`/etc/systemd/system/wgctl-${iface}.service`),
+    unitExists: unitEnabled,
   };
 }
 
@@ -89,7 +72,7 @@ export async function setupCommand(args: string[]): Promise<void> {
       console.log(`\n${iface} is already (partially) configured:`);
       console.log(`  ${"/etc/wireguard/" + iface + ".conf"}`.padEnd(pad) + (state.confExists ? "✓ exists" : "✗ missing"));
       console.log(`  ${"/etc/wgctl/" + iface + ".env"}`.padEnd(pad) + (state.envExists ? "✓ exists" : "✗ missing"));
-      console.log(`  ${"/etc/systemd/system/wgctl-" + iface + ".service"}`.padEnd(pad) + (state.unitExists ? "✓ exists" : "✗ missing"));
+      console.log(`  ${"wg-quick@" + iface + " (systemd)"}`.padEnd(pad) + (state.unitExists ? "✓ enabled" : "✗ not enabled"));
       console.log();
       const choice = await askChoice("What would you like to do?", [
         "Re-run setup and overwrite existing config (will restart service if running)",
@@ -163,7 +146,7 @@ Summary:
   }
 
   // === Write phase ===
-  const unitName = `wgctl-${iface}`;
+  const unitName = `wg-quick@${iface}`;
   stopIfActive(unitName);
 
   if (spawnSync("which", ["wg"], { stdio: "ignore" }).status !== 0) {
@@ -187,7 +170,15 @@ Summary:
   }
   writeFileSync(
     confPath,
-    `[Interface]\nPrivateKey = ${genKey.stdout.trim()}\nAddress = ${serverAddress}\nListenPort = ${wgPort}\n`,
+    [
+      "[Interface]",
+      `PrivateKey = ${genKey.stdout.trim()}`,
+      `Address = ${serverAddress}`,
+      `ListenPort = ${wgPort}`,
+      `PostUp = iptables -A FORWARD -i %i -o %i -j ACCEPT; sysctl -w net.ipv4.ip_forward=1`,
+      `PreDown = iptables -D FORWARD -i %i -o %i -j ACCEPT`,
+      "",
+    ].join("\n"),
     { mode: 0o600 },
   );
   console.log(`Wrote ${confPath}`);
@@ -209,13 +200,6 @@ Summary:
   if (publicHost) envLines.push(`PUBLIC_HOST=${publicHost}`);
   writeFileSync(envFilePath, envLines.join("\n") + "\n", { mode: 0o600 });
   console.log(`Wrote ${envFilePath}`);
-
-  // Systemd unit
-  const unitPath = `/etc/systemd/system/${unitName}.service`;
-  const binPath = realpathSync(process.argv[1]);
-  writeFileSync(unitPath, buildUnitContent(iface, envFilePath, binPath));
-  execFileSync("systemctl", ["daemon-reload"]);
-  console.log(`Wrote ${unitPath}`);
 
   switch (serviceChoice) {
     case 0: execFileSync("systemctl", ["enable", "--now", unitName], { stdio: "inherit" }); break;

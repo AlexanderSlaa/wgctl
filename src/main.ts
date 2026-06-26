@@ -3,7 +3,6 @@ import { checkForUpdate } from "./version-check.js";
 import { ensureRoot } from "./elevate.js";
 
 const ROOT_REQUIRED_COMMANDS = new Set([
-  "serve",
   "status",
   "peer",
   "service",
@@ -22,7 +21,6 @@ First-time setup (run on the hub server, as root):
                               env file, install systemd service.
 
 Hub server administration (run locally on the server, as root):
-  wgctl serve                 Start the WireGuard hub daemon (managed by systemd)
   wgctl peer add <label> [--endpoint <host:port>] [--output <file>] [--join-token]
                               Add a peer. Prints a join token or .conf by default.
   wgctl peer token <label>    Re-generate a join token for an existing peer.
@@ -54,7 +52,7 @@ Joining the overlay (run on any peer machine, as root):
   wgctl down [--interface <name>]
                               Stop a running tunnel without removing its config.
 
-Commands that configure the WireGuard interface (serve, status, peer, setup)
+Commands that configure the WireGuard interface (status, peer, setup)
 require root / CAP_NET_ADMIN. If you run one without it, wgctl re-runs
 itself under \`sudo\` automatically (set WGCTL_NO_SUDO=1 to disable).
 `;
@@ -69,9 +67,6 @@ async function main(): Promise<void> {
   switch (command) {
     case "setup":
       await (await import("./commands/admin/setup.js")).setupCommand(args);
-      break;
-    case "serve":
-      await (await import("./server/serve.js")).serveCommand();
       break;
     case "peer":
       (await import("./commands/admin/peer.js")).peerCommand(args);
@@ -102,7 +97,7 @@ async function main(): Promise<void> {
       process.exitCode = command ? 1 : 0;
   }
 
-  if (command !== "serve" && command !== "update") {
+  if (command !== "update") {
     checkForUpdate();
   }
 }

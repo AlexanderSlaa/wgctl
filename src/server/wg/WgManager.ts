@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { writeFileSync, unlinkSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -75,4 +75,46 @@ export function reconcileFromDb(): void {
       allowedIPs: [`${peer.tunnel_ip}/32`],
     });
   }
+}
+
+export function addPeerToConf(params: {
+  label: string;
+  publicKey: string;
+  presharedKey?: string;
+  allowedIPs: string[];
+  keepalive: number;
+}): void {
+  const lines = [
+    "",
+    "[Peer]",
+    `# label: ${params.label}`,
+    `PublicKey = ${params.publicKey}`,
+    ...(params.presharedKey ? [`PresharedKey = ${params.presharedKey}`] : []),
+    `AllowedIPs = ${params.allowedIPs.join(", ")}`,
+    `PersistentKeepalive = ${params.keepalive}`,
+    "",
+  ].join("\n");
+  appendFileSync(config.wgConfPath, lines);
+}
+
+export function removePeerFromConf(publicKey: string): void {
+  const content = readFileSync(config.wgConfPath, "utf8");
+  const sections: string[] = [];
+  let cur = "";
+  for (const line of content.split("\n")) {
+    if (line.match(/^\[/) && cur) {
+      sections.push(cur);
+      cur = line + "\n";
+    } else {
+      cur += line + "\n";
+    }
+  }
+  if (cur.trim()) sections.push(cur);
+
+  const filtered = sections.filter((s) => {
+    if (!s.trimStart().startsWith("[Peer]")) return true;
+    return !s.includes(`PublicKey = ${publicKey}`);
+  });
+
+  writeFileSync(config.wgConfPath, filtered.join("").replace(/\n{3,}/g, "\n\n"), { mode: 0o600 });
 }

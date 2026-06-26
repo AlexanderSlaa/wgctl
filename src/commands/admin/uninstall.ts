@@ -105,6 +105,7 @@ function discoverInstalls(): ManagedInstall[] {
     });
   }
 
+  // Legacy: wgctl-<iface>.service unit files written by old setup versions
   for (const file of listFiles(SYSTEMD_DIR)) {
     const match = file.match(/^wgctl-(.+)\.service$/);
     if (!match) continue;
@@ -119,12 +120,13 @@ function discoverInstalls(): ManagedInstall[] {
     });
   }
 
+  // Current: wg-quick@<iface> enabled via env files written by setup
   for (const file of listFiles(WGCTL_DIR)) {
     if (!file.endsWith(".env") || file === "wgctl.env") continue;
     const envPath = join(WGCTL_DIR, file);
     const iface = readEnvValue(envPath, "WG_INTERFACE") ?? file.slice(0, -".env".length);
-    const unitName = `wgctl-${iface}`;
-    if (!installs.has(unitName)) {
+    const unitName = `wg-quick@${iface}`;
+    if (!installs.has(unitName) && !installs.has(`wgctl-${iface}`)) {
       installs.set(unitName, {
         unitName,
         unitPath: `${SYSTEMD_DIR}/${unitName}.service`,
@@ -175,7 +177,7 @@ function runSystemctl(args: string[]): void {
 }
 
 function removeRuntimeState(iface: string): void {
-  spawnSync("iptables", ["-D", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT"], { stdio: "ignore" });
+  // wg-quick PreDown handles iptables cleanup; only remove the interface if still up
   const deleted = spawnSync("ip", ["link", "delete", iface], { stdio: "ignore" });
   if (deleted.status === 0) {
     console.log(`Removed runtime interface ${iface}.`);

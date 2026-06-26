@@ -36,7 +36,7 @@ function usage(): void {
 
 export async function serviceCommand(args: string[]): Promise<void> {
   const { sub, iface, rest } = parseArgs(args);
-  const unitName = `wgctl-${iface}`;
+  const unitName = `wg-quick@${iface}`;
   const unitPath = `/etc/systemd/system/${unitName}.service`;
   const envPath = `/etc/wgctl/${iface}.env`;
 
@@ -74,13 +74,14 @@ export async function serviceCommand(args: string[]): Promise<void> {
       return;
     }
     case "uninstall": {
-      if (!existsSync(unitPath)) {
-        console.log(`${unitName} is not installed (no ${unitPath}) — nothing to do.`);
+      const isEnabled = spawnSync("systemctl", ["is-enabled", "--quiet", unitName], { stdio: "ignore" }).status === 0;
+      if (!isEnabled && !existsSync(envPath)) {
+        console.log(`${unitName} is not enabled and no env file found — nothing to do.`);
         return;
       }
       if (!rest.includes("-y") && !rest.includes("--yes")) {
         const answer = await askText(
-          `This will stop ${unitName}, disable it from boot, and delete ${unitPath} and ${envPath}.\n` +
+          `This will stop and disable ${unitName} and delete ${envPath}.\n` +
             `WireGuard config and SQLite data are NOT touched. Continue? [y/N]: `,
         );
         if (answer.trim().toLowerCase() !== "y") {
@@ -91,10 +92,8 @@ export async function serviceCommand(args: string[]): Promise<void> {
       try {
         execFileSync("systemctl", ["disable", "--now", unitName], { stdio: "inherit" });
       } catch { /* already stopped/disabled */ }
-      if (existsSync(unitPath)) rmSync(unitPath);
       if (existsSync(envPath)) rmSync(envPath);
-      execFileSync("systemctl", ["daemon-reload"]);
-      console.log(`Removed ${unitPath} and ${envPath}.`);
+      console.log(`Disabled ${unitName} and removed ${envPath}.`);
       return;
     }
     default:
