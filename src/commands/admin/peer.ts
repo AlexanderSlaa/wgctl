@@ -1,17 +1,222 @@
-import { listAllPeers, findPeerById, deletePeer } from "../../server/db/peers.repo.js";
-import { getNetworksByIds } from "../../server/db/networks.repo.js";
+import { generatePresharedKey, generatePrivateKey, publicKey } from "@sourceregistry/node-wireguard";
+import { writeFileSync } from "node:fs";
+import { isValidCidr, cidrsOverlap } from "../../shared/index.js";
+import { listAllPeers, findPeerById, deletePeer, createManualPeer, listAdvertisedSubnetsExcluding } from "../../server/db/peers.repo.js";
+import { findNetworkByName, getNetworksByIds, listAllNetworks } from "../../server/db/networks.repo.js";
 import { getWgManager } from "../../server/wg/WgManager.js";
+import { config } from "../../server/config.js";
+import { findUserByUsername } from "../../server/db/users.repo.js";
 
 function usage(): void {
   console.log(`Usage:
+  wgctl peer add <label> [--network <name>]... [--advertise <cidr>]... [--dns <servers>] [--endpoint <host:port>] [--output <file>]
   wgctl peer ls
   wgctl peer rm <id> [--force]`);
+}
+
+interface AddOptions {
+  label: string;
+  networkNames: string[];
+  advertisedSubnets: string[];
+  dns?: string;
+  endpoint?: string;
+  output?: string;
+}
+
+function readFlagValues(args: string[], longFlag: string): string[] {
+  const values: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === longFlag) {
+      const value = args[i + 1];
+      if (!value || value.startsWith("--")) throw new Error(`${longFlag} requires a value.`);
+      values.push(value);
+      i++;
+    }
+  }
+  return values;
+}
+
+function readOptionalFlag(args: string[], longFlag: string): string | undefined {
+  const values = readFlagValues(args, longFlag);
+  if (values.length > 1) throw new Error(`${longFlag} can only be provided once.`);
+  return values[0];
+}
+
+function parseAddOptions(rest: string[]): AddOptions {
+  const [label] = rest;
+  if (!label || label.startsWith("--")) throw new Error("Usage: wgctl peer add <label> [--network <name>]...");
+
+  const supportedFlags = new Set(["--network", "--advertise", "--dns", "--endpoint", "--output"]);
+  for (let i = 1; i < rest.length; i++) {
+    const arg = rest[i];
+    if (!supportedFlags.has(arg)) throw new Error(`Unknown option: ${arg}`);
+    i++;
+    if (!rest[i] || rest[i].startsWith("--")) throw new Error(`${arg} requires a value.`);
+  }
+
+  const flagArgs = rest.slice(1);
+  return {
+    label,
+    networkNames: readFlagValues(flagArgs, "--network"),
+    advertisedSubnets: readFlagValues(flagArgs, "--advertise"),
+    dns: readOptionalFlag(flagArgs, "--dns"),
+    endpoint: readOptionalFlag(flagArgs, "--endpoint"),
+    output: readOptionalFlag(flagArgs, "--output"),
+  };
+}
+
+function validateAdvertisedSubnets(subnets: string[], label: string): void {
+  for (const subnet of subnets) {
+    if (!isValidCidr(subnet)) {
+      throw new Error(`Invalid CIDR in --advertise: ${subnet}`);
+    }
+    const prefixLen = parseInt(subnet.split("/")[1] ?? "", 10);
+    if (Number.isNaN(prefixLen) || prefixLen < 8) {
+      throw new Error(`Advertised subnet ${subnet} must have a prefix length of /8 or longer.`);
+    }
+  }
+
+  for (const subnet of subnets) {
+    for (const network of listAllNetworks()) {
+      if (cidrsOverlap(subnet, network.cidr)) {
+        throw new Error(`Advertised subnet ${subnet} overlaps network "${network.name}" (${network.cidr}).`);
+      }
+    }
+    for (const existing of listAdvertisedSubnetsExcluding(label)) {
+      if (cidrsOverlap(subnet, existing)) {
+        throw new Error(`Advertised subnet ${subnet} overlaps an existing peer subnet (${existing}).`);
+      }
+    }
+  }
+}
+
+function resolveNetworkIds(names: string[]): number[] {
+  const ids: number[] = [];
+  for (const name of names) {
+    const network = findNetworkByName(name);
+    if (!network) throw new Error(`Network "${name}" not found.`);
+    ids.push(network.id);
+  }
+  if (new Set(ids).size !== ids.length) throw new Error("The same network was selected more than once.");
+  return ids;
+}
+
+function renderClientConfig(params: {
+  privateKey: string;
+  presharedKey: string;
+  clientAddress: string;
+  serverPublicKey: string;
+  endpoint: string;
+  allowedIPs: string[];
+  dns?: string;
+}): string {
+  const lines = [
+    "[Interface]",
+    `PrivateKey = ${params.privateKey}`,
+    `Address = ${params.clientAddress}`,
+  ];
+  if (params.dns) lines.push(`DNS = ${params.dns}`);
+  lines.push(
+    "",
+    "[Peer]",
+    `PublicKey = ${params.serverPublicKey}`,
+    `PresharedKey = ${params.presharedKey}`,
+    `Endpoint = ${params.endpoint}`,
+    `AllowedIPs = ${params.allowedIPs.join(", ")}`,
+    `PersistentKeepalive = ${config.persistentKeepalive}`,
+  );
+  return lines.join("\n") + "\n";
 }
 
 export async function peerCommand(args: string[]): Promise<void> {
   const [sub, ...rest] = args;
 
   switch (sub) {
+    case "add": {
+      let options: AddOptions;
+      try {
+        options = parseAddOptions(rest);
+        validateAdvertisedSubnets(options.advertisedSubnets, options.label);
+      } catch (err: any) {
+        console.error(err.message);
+        usage();
+        process.exitCode = 1;
+        return;
+      }
+
+      let networkIds: number[];
+      try {
+        if (findUserByUsername(options.label)) {
+          throw new Error(`"${options.label}" is an existing user. Pick a device label that is not a username.`);
+        }
+        networkIds = resolveNetworkIds(options.networkNames);
+      } catch (err: any) {
+        console.error(err.message);
+        process.exitCode = 1;
+        return;
+      }
+
+      const privateKey = generatePrivateKey();
+      const peerPublicKey = publicKey(privateKey);
+      const presharedKey = generatePresharedKey();
+      const endpoint = options.endpoint ?? `${config.publicHost}:${config.wgListenPort}`;
+      const serverPublicKey = (await getWgManager().raw.device(config.wgInterface)).publicKey;
+      let peer;
+      try {
+        peer = createManualPeer({
+          label: options.label,
+          publicKey: peerPublicKey,
+          presharedKey,
+          advertisedSubnets: options.advertisedSubnets,
+          networkIds,
+        });
+      } catch (err: any) {
+        console.error(err.message);
+        process.exitCode = 1;
+        return;
+      }
+
+      try {
+        await getWgManager().upsertPeer({
+          publicKey: peer.public_key,
+          presharedKey,
+          allowedIPs: [`${peer.tunnel_ip}/32`, ...options.advertisedSubnets],
+        });
+      } catch (err) {
+        deletePeer(peer.id);
+        throw err;
+      }
+
+      const networks = getNetworksByIds(networkIds);
+      const subnetPrefixLength = config.wgSubnet.split("/")[1];
+      const clientAddress = `${peer.tunnel_ip}/${subnetPrefixLength}`;
+      const allowedIPs = [config.wgSubnet, ...networks.map((n) => n.cidr)];
+      const clientConfig = renderClientConfig({
+        privateKey,
+        presharedKey,
+        clientAddress,
+        serverPublicKey,
+        endpoint,
+        allowedIPs,
+        dns: options.dns,
+      });
+
+      console.log(`Created peer ${peer.id} (${options.label}).`);
+      if (options.output) {
+        try {
+          writeFileSync(options.output, clientConfig, { mode: 0o600 });
+        } catch (err) {
+          await getWgManager().removePeer(peer.public_key).catch(() => undefined);
+          deletePeer(peer.id);
+          throw err;
+        }
+        console.log(`Wrote WireGuard config to ${options.output}.`);
+      } else {
+        console.log("Import this config into the WireGuard app:\n");
+        console.log(clientConfig);
+      }
+      return;
+    }
     case "ls": {
       const peers = listAllPeers();
       if (peers.length === 0) {

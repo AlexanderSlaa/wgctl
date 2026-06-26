@@ -31,6 +31,8 @@ export const config = {
   sysctlFile: process.env.SYSCTL_FILE ?? "/etc/sysctl.d/99-wgctl.conf",
   tlsCertPath: process.env.TLS_CERT_PATH ?? "/etc/wgctl/tls/cert.pem",
   tlsKeyPath: process.env.TLS_KEY_PATH ?? "/etc/wgctl/tls/key.pem",
+  setupToken: process.env.WGCTL_SETUP_TOKEN || undefined,
+  setupUsername: process.env.WGCTL_SETUP_USERNAME || "admin",
   sessionTtlMs: Number(process.env.SESSION_TTL_MS ?? 7 * 24 * 60 * 60 * 1000),
   persistentKeepalive: Number(process.env.PERSISTENT_KEEPALIVE ?? 25),
   /**

@@ -51,6 +51,12 @@ one-line notice if so — it never blocks or delays the command's own output.
 Run `wgctl update` (or `sudo wgctl update` if needed for permissions) to
 install the latest version — it asks for confirmation first (`-y` to skip).
 
+To clean up an installed server later, run `sudo wgctl uninstall`. It stops
+and removes wgctl systemd units, service environment files, runtime
+interfaces, and wgctl's forwarding rule, but leaves databases, TLS keys, and
+WireGuard config files in place unless you pass `--purge-data`. Add `--npm`
+if you also want it to run `npm uninstall -g wgctl` after cleanup.
+
 Installing the new files never by itself interrupts a running `wgctl serve`
 or any existing WireGuard tunnel — the kernel keeps `wg0` and its peers up
 independently of the wgctl process. The update only takes effect once you
@@ -119,6 +125,12 @@ sudo wgctl network add office-lan 192.168.10.0/24 "Office LAN"
 sudo wgctl network grant alice office-lan     # authorize a user for a network
 sudo wgctl network revoke alice office-lan
 sudo wgctl network ls
+
+sudo wgctl peer add alice-phone --network office-lan
+# prints a standard WireGuard config you can import into the WireGuard app
+
+sudo wgctl peer add router --network office-lan --advertise 192.168.50.0/24 --output router.conf
+# writes a config for devices that can't run the wgctl CLI
 
 sudo wgctl peer ls                            # every registered peer, with live handshake status
 sudo wgctl peer rm <id>                       # revoke a single peer/device without removing its user

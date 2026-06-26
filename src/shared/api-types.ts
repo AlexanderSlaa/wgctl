@@ -1,9 +1,6 @@
 // Single source of truth for the HTTP contract between packages/server and packages/cli.
 
-export interface LoginRequest {
-  username: string;
-  password: string;
-}
+export type LoginRequest = { username: string; password: string } | { setupToken: string };
 
 export interface LoginResponse {
   token: string;

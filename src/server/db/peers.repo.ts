@@ -80,6 +80,35 @@ export function upsertUserPeer(params: {
   return findPeerByPublicKey(params.publicKey)!;
 }
 
+export function createManualPeer(params: {
+  label: string;
+  publicKey: string;
+  presharedKey: string;
+  advertisedSubnets: string[];
+  networkIds: number[];
+}): PeerRow {
+  const db = getDb();
+  if (findPeerByUsername(params.label)) {
+    throw new Error(`Peer label "${params.label}" is already in use.`);
+  }
+  if (findPeerByPublicKey(params.publicKey)) {
+    throw new Error("A peer with this public key already exists.");
+  }
+
+  const tunnelIp = allocateNextIp(config.wgSubnet, allUsedIps(), [1, 2]);
+  db.prepare(
+    "INSERT INTO peers (username, public_key, preshared_key, tunnel_ip, advertised_subnets, network_ids, is_static, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, 0, datetime('now'))",
+  ).run(
+    params.label,
+    params.publicKey,
+    params.presharedKey,
+    tunnelIp,
+    JSON.stringify(params.advertisedSubnets),
+    JSON.stringify(params.networkIds),
+  );
+  return findPeerByPublicKey(params.publicKey)!;
+}
+
 export function upsertStaticPeer(params: { publicKey: string; presharedKey: string; tunnelIp: string }): PeerRow {
   const db = getDb();
   const existing = findPeerByPublicKey(params.publicKey);

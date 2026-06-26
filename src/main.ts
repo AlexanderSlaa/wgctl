@@ -43,6 +43,8 @@ Server administration (run locally on the server, as root):
   wgctl network rm <name>                  Remove a network
   wgctl network grant <user> <network>     Authorize a user for a network
   wgctl network revoke <user> <network>    Revoke a user's access to a network
+  wgctl peer add <label> [--network <name>]...
+                                            Generate a WireGuard app/device config
   wgctl peer ls                            List all registered peers (with live handshake status)
   wgctl peer rm <id> [--force]             Revoke a single peer/device without removing its user
   wgctl service install                    Write the systemd unit (without starting it)
