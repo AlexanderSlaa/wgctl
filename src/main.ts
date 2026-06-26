@@ -32,6 +32,9 @@ Hub server administration (run locally on the server, as root):
   wgctl service install       Write the systemd unit (without starting it)
   wgctl service enable        Start now and on every boot
   wgctl service disable       Stop and remove from boot
+  wgctl service start         Start the service
+  wgctl service stop          Stop the service (keeps autostart)
+  wgctl service restart       Restart the service
   wgctl service uninstall [-y]
                               Stop, disable, and delete the unit
   wgctl service status        Show systemd status

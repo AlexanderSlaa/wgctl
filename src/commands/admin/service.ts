@@ -17,6 +17,9 @@ function usage(): void {
   wgctl service install            Write the systemd unit (does not start it)
   wgctl service enable             Install if needed, then start now and on every boot
   wgctl service disable            Stop and remove from boot (unit file is kept)
+  wgctl service start              Start the service
+  wgctl service stop               Stop the service (does not disable from boot)
+  wgctl service restart            Restart the service
   wgctl service uninstall [-y]     Stop, disable, and delete the unit + env file (asks to confirm)
   wgctl service status             Show systemd status
   wgctl service logs [-f] [-n N]   Show logs via journalctl (-f to follow, default 50 lines)`);
@@ -82,6 +85,18 @@ export async function serviceCommand(args: string[]): Promise<void> {
     case "disable":
       execFileSync("systemctl", ["disable", "--now", UNIT_NAME], { stdio: "inherit" });
       console.log(`${UNIT_NAME} stopped and disabled from starting on boot. (Unit file kept at ${UNIT_PATH}.)`);
+      return;
+    case "start":
+      execFileSync("systemctl", ["start", UNIT_NAME], { stdio: "inherit" });
+      console.log(`${UNIT_NAME} started.`);
+      return;
+    case "stop":
+      execFileSync("systemctl", ["stop", UNIT_NAME], { stdio: "inherit" });
+      console.log(`${UNIT_NAME} stopped.`);
+      return;
+    case "restart":
+      execFileSync("systemctl", ["restart", UNIT_NAME], { stdio: "inherit" });
+      console.log(`${UNIT_NAME} restarted.`);
       return;
     case "uninstall": {
       if (!existsSync(UNIT_PATH)) {
