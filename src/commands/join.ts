@@ -1,7 +1,10 @@
+import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { getDb } from "../server/db/index.js";
 
 const TOKEN_PREFIX = "wgctl-join-v1.";
+const META_PREFIX = "join_token_hash:";
 
 interface JoinToken {
   version: number;
@@ -125,6 +128,26 @@ function decodeToken(token: string): JoinToken {
   return body as unknown as JoinToken;
 }
 
+function tokenHash(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function ensureUnusedJoinToken(token: string): void {
+  const hash = tokenHash(token);
+  const existing = getDb().prepare("SELECT 1 FROM meta WHERE key = ?").get(`${META_PREFIX}${hash}`);
+  if (existing) {
+    throw new Error("This join token has already been used.");
+  }
+}
+
+function markJoinTokenUsed(token: string): void {
+  const hash = tokenHash(token);
+  getDb().prepare("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)").run(
+    `${META_PREFIX}${hash}`,
+    new Date().toISOString(),
+  );
+}
+
 function renderConfig(token: JoinToken): string {
   const lines = [
     "[Interface]",
@@ -246,6 +269,7 @@ export async function joinCommand(args: string[]): Promise<void> {
     }
     iface = parsed.iface;
     assertIface(iface);
+    ensureUnusedJoinToken(parsed.token);
     token = decodeToken(parsed.token);
   } catch (err: any) {
     console.error(err.message);
@@ -291,5 +315,6 @@ export async function joinCommand(args: string[]): Promise<void> {
   writeFileSync(paths.unitPath, buildUnitContent(iface, paths.envPath));
   execFileSync("systemctl", ["daemon-reload"]);
   execFileSync("systemctl", ["enable", "--now", paths.unitName], { stdio: "inherit" });
+  markJoinTokenUsed(parsed.token);
   console.log(`Connected ${iface}. Status: systemctl status ${paths.unitName}`);
 }

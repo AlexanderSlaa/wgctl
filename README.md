@@ -165,7 +165,8 @@ sudo wgctl peer add server-b --join-token
 
 Then paste the printed `sudo wgctl join ...` command on Server B. Server B
 writes `/etc/wireguard/wg0.conf`, creates a `wgctl-wg0` systemd service, and
-starts it so the tunnel survives reboot.
+starts it so the tunnel survives reboot. The join token is one-time-use on the
+receiving server, so a second paste of the same token will be rejected.
 
 To remove that joined connection from Server B later:
 
