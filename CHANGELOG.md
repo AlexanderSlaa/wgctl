@@ -1,3 +1,15 @@
+# [1.6.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.5.0...v1.6.0) (2026-06-26)
+
+
+### Bug Fixes
+
+* **security:** address all five findings from security audit ([428cf73](https://github.com/AlexanderSlaa/wgctl/commit/428cf73404e23fcb18c3be54df654107d790403a))
+
+
+### Features
+
+* **cli:** add uninstall and manual peer configs ([36a46cb](https://github.com/AlexanderSlaa/wgctl/commit/36a46cb70528fdaab6ee6251263bd63f398368d6))
+
 # [1.5.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.4.0...v1.5.0) (2026-06-26)
 
 
