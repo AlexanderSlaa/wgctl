@@ -1,3 +1,10 @@
+## [1.9.1](https://github.com/AlexanderSlaa/wgctl/compare/v1.9.0...v1.9.1) (2026-06-26)
+
+
+### Bug Fixes
+
+* **wg:** use temp file for preshared key instead of /dev/stdin ([bb44b82](https://github.com/AlexanderSlaa/wgctl/commit/bb44b821c192b9d3e68d15cddfeb68057c29aacd))
+
 # [1.9.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.8.1...v1.9.0) (2026-06-26)
 
 
