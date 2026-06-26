@@ -1,3 +1,10 @@
+# [1.10.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.9.1...v1.10.0) (2026-06-26)
+
+
+### Features
+
+* add wgctl up/down to start/stop tunnels ([9a927d7](https://github.com/AlexanderSlaa/wgctl/commit/9a927d742805aa01522dfe5e87ebecc94d1d09f9))
+
 ## [1.9.1](https://github.com/AlexanderSlaa/wgctl/compare/v1.9.0...v1.9.1) (2026-06-26)
 
 
