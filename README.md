@@ -179,6 +179,19 @@ sudo wgctl uninstall --purge-data # also removes the SQLite DB and WireGuard con
 sudo wgctl uninstall --npm        # also runs npm uninstall -g wgctl
 ```
 
+## Security considerations
+
+- **Share join tokens over secure channels.** Each token contains the peer's WireGuard private key as a base64 blob. Anyone who sees the token before it is used can impersonate that peer. Use SSH, an encrypted messenger, or similar — not plain email or chat.
+
+- **Tokens do not expire.** A generated but unused token stays valid indefinitely. If you generate one and no longer need it, remove the peer with `wgctl peer rm <label>` to invalidate it.
+
+- **IP forwarding is enabled globally.** The `PostUp` rule in `wg0.conf` runs `sysctl -w net.ipv4.ip_forward=1`, which enables packet forwarding for all interfaces on the host, not just `wg0`. The iptables `FORWARD` rule is scoped to the WireGuard interface only, so other traffic is still subject to your existing iptables policy.
+
+- **The SQLite database is world-readable by default.** `/etc/wgctl/<iface>.sqlite` contains peer public keys and pre-shared keys. Restrict its permissions after setup:
+  ```sh
+  chmod 600 /etc/wgctl/wg0.sqlite
+  ```
+
 ## Contributing
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for building from source, the
