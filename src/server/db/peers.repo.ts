@@ -4,19 +4,15 @@ import { config } from "../config.js";
 
 export interface PeerRow {
   id: number;
-  username: string;
+  label: string;
   public_key: string;
   preshared_key: string | null;
   tunnel_ip: string;
-  advertised_subnets: string; // JSON string
-  network_ids: string; // JSON string
-  is_static: 0 | 1;
   created_at: string;
-  last_seen_at: string | null;
 }
 
-export function findPeerByUsername(username: string): PeerRow | undefined {
-  return getDb().prepare("SELECT * FROM peers WHERE username = ?").get(username) as unknown as PeerRow | undefined;
+export function findPeerByLabel(label: string): PeerRow | undefined {
+  return getDb().prepare("SELECT * FROM peers WHERE label = ?").get(label) as unknown as PeerRow | undefined;
 }
 
 export function findPeerById(id: number): PeerRow | undefined {
@@ -27,20 +23,8 @@ export function findPeerByPublicKey(publicKey: string): PeerRow | undefined {
   return getDb().prepare("SELECT * FROM peers WHERE public_key = ?").get(publicKey) as unknown as PeerRow | undefined;
 }
 
-export function listNonStaticPeers(): PeerRow[] {
-  return getDb().prepare("SELECT * FROM peers WHERE is_static = 0").all() as unknown as PeerRow[];
-}
-
 export function listAllPeers(): PeerRow[] {
   return getDb().prepare("SELECT * FROM peers ORDER BY id").all() as unknown as PeerRow[];
-}
-
-/** All advertised subnets currently in use by other peers (for overlap checks). */
-export function listAdvertisedSubnetsExcluding(username: string): string[] {
-  const rows = getDb()
-    .prepare("SELECT advertised_subnets FROM peers WHERE username != ?")
-    .all(username) as { advertised_subnets: string }[];
-  return rows.flatMap((r) => JSON.parse(r.advertised_subnets) as string[]);
 }
 
 function allUsedIps(): Set<string> {
@@ -49,73 +33,28 @@ function allUsedIps(): Set<string> {
 }
 
 /**
- * Registers or re-registers a peer for a user. One peer slot per username:
- * if the user already has a row, it's updated in place (same tunnel_ip,
- * possibly a new public key / selection). Allocation + insert happen inside
- * a single synchronous function (node:sqlite is synchronous, Node is
- * single-threaded) so there is no TOCTOU race between two concurrent
- * registrations without needing application-level locking.
+ * Creates a new peer with an auto-allocated tunnel IP. Throws if the label
+ * or public key already exists. Allocation + insert are synchronous (node:sqlite
+ * is synchronous, Node is single-threaded) so there is no TOCTOU race.
  */
-export function upsertUserPeer(params: {
-  username: string;
-  publicKey: string;
-  advertisedSubnets: string[];
-  networkIds: number[];
-}): PeerRow {
-  const db = getDb();
-  const existing = findPeerByUsername(params.username);
-
-  if (existing) {
-    db.prepare(
-      "UPDATE peers SET public_key = ?, advertised_subnets = ?, network_ids = ?, last_seen_at = datetime('now') WHERE id = ?",
-    ).run(params.publicKey, JSON.stringify(params.advertisedSubnets), JSON.stringify(params.networkIds), existing.id);
-    return findPeerById(existing.id)!;
-  }
-
-  // Reserved offsets: .1 (server) and .2 (static iphone peer) within the /24 pool.
-  const tunnelIp = allocateNextIp(config.wgSubnet, allUsedIps(), [1, 2]);
-  db.prepare(
-    "INSERT INTO peers (username, public_key, tunnel_ip, advertised_subnets, network_ids, is_static, last_seen_at) VALUES (?, ?, ?, ?, ?, 0, datetime('now'))",
-  ).run(params.username, params.publicKey, tunnelIp, JSON.stringify(params.advertisedSubnets), JSON.stringify(params.networkIds));
-  return findPeerByPublicKey(params.publicKey)!;
-}
-
-export function createManualPeer(params: {
+export function createPeer(params: {
   label: string;
   publicKey: string;
   presharedKey: string;
-  advertisedSubnets: string[];
-  networkIds: number[];
 }): PeerRow {
   const db = getDb();
-  if (findPeerByUsername(params.label)) {
+  if (findPeerByLabel(params.label)) {
     throw new Error(`Peer label "${params.label}" is already in use.`);
   }
   if (findPeerByPublicKey(params.publicKey)) {
     throw new Error("A peer with this public key already exists.");
   }
 
-  const tunnelIp = allocateNextIp(config.wgSubnet, allUsedIps(), [1, 2]);
+  // Reserve offset 1 (server's own tunnel IP).
+  const tunnelIp = allocateNextIp(config.wgSubnet, allUsedIps(), [1]);
   db.prepare(
-    "INSERT INTO peers (username, public_key, preshared_key, tunnel_ip, advertised_subnets, network_ids, is_static, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, 0, datetime('now'))",
-  ).run(
-    params.label,
-    params.publicKey,
-    params.presharedKey,
-    tunnelIp,
-    JSON.stringify(params.advertisedSubnets),
-    JSON.stringify(params.networkIds),
-  );
-  return findPeerByPublicKey(params.publicKey)!;
-}
-
-export function upsertStaticPeer(params: { publicKey: string; presharedKey: string; tunnelIp: string }): PeerRow {
-  const db = getDb();
-  const existing = findPeerByPublicKey(params.publicKey);
-  if (existing) return existing;
-  db.prepare(
-    "INSERT INTO peers (username, public_key, preshared_key, tunnel_ip, advertised_subnets, network_ids, is_static) VALUES ('__static__', ?, ?, ?, '[]', '[]', 1)",
-  ).run(params.publicKey, params.presharedKey, params.tunnelIp);
+    "INSERT INTO peers (label, public_key, preshared_key, tunnel_ip) VALUES (?, ?, ?, ?)",
+  ).run(params.label, params.publicKey, params.presharedKey, tunnelIp);
   return findPeerByPublicKey(params.publicKey)!;
 }
 

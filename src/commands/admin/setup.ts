@@ -1,8 +1,7 @@
-import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { networkInterfaces, hostname } from "node:os";
+import { networkInterfaces } from "node:os";
 import { askText, askChoice } from "../../client/prompts.js";
 import { isValidCidr, hostAtOffset, parseCidr } from "../../shared/cidr.js";
 import { ensureNativeAddon } from "../../shared/ensure-addon.js";
@@ -27,14 +26,13 @@ function deriveDefaults(iface: string) {
   const n = parseIfaceNum(iface);
   return {
     wgPort: 51820 + n,
-    apiPort: 8443 + n,
     subnet: `10.${88 + n}.0.0/24`,
   };
 }
 
 function buildUnitContent(iface: string, envFilePath: string, binPath: string): string {
   return `[Unit]
-Description=wgctl WireGuard orchestration daemon (${iface})
+Description=wgctl WireGuard hub (${iface})
 After=network-online.target
 Wants=network-online.target
 
@@ -58,13 +56,11 @@ function checkState(iface: string) {
   };
 }
 
-function stopIfActive(unitName: string): boolean {
+function stopIfActive(unitName: string): void {
   const result = spawnSync("systemctl", ["is-active", unitName], { stdio: "ignore" });
   if (result.status === 0) {
     spawnSync("systemctl", ["stop", unitName], { stdio: "inherit" });
-    return true;
   }
-  return false;
 }
 
 export async function setupCommand(args: string[]): Promise<void> {
@@ -72,7 +68,6 @@ export async function setupCommand(args: string[]): Promise<void> {
   const ifaceFlagIdx = args.findIndex((a) => a === "--interface" || a === "-i");
   const ifaceFlag = ifaceFlagIdx !== -1 ? args[ifaceFlagIdx + 1] : undefined;
 
-  // Step 0: ensure native module is built (build and re-exec if scripts were skipped at install)
   await ensureNativeAddon();
 
   // Step 1: interface name
@@ -84,28 +79,20 @@ export async function setupCommand(args: string[]): Promise<void> {
     iface = answer || "wg0";
   }
 
-  // Validate: must start with a letter, 1–15 chars, letters/digits/underscore/hyphen only.
-  // This prevents path traversal and systemd unit name injection.
   if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,14}$/.test(iface)) {
-    console.error(
-      "Interface name must start with a letter, be 1–15 characters, and contain only " +
-        "letters, digits, underscores, or hyphens.",
-    );
+    console.error("Interface name must start with a letter, be 1-15 characters, and contain only letters, digits, underscores, or hyphens.");
     process.exitCode = 1;
     return;
   }
 
-  // Already-configured check
   if (!force) {
     const state = checkState(iface);
     if (state.confExists || state.envExists || state.unitExists) {
       const pad = 45;
       console.log(`\n${iface} is already (partially) configured:`);
-      console.log(`  ${"  /etc/wireguard/" + iface + ".conf"}`.padEnd(pad) + (state.confExists ? "✓ exists" : "✗ missing"));
+      console.log(`  ${"/etc/wireguard/" + iface + ".conf"}`.padEnd(pad) + (state.confExists ? "✓ exists" : "✗ missing"));
       console.log(`  ${"/etc/wgctl/" + iface + ".env"}`.padEnd(pad) + (state.envExists ? "✓ exists" : "✗ missing"));
-      console.log(
-        `  ${"/etc/systemd/system/wgctl-" + iface + ".service"}`.padEnd(pad) + (state.unitExists ? "✓ exists" : "✗ missing"),
-      );
+      console.log(`  ${"/etc/systemd/system/wgctl-" + iface + ".service"}`.padEnd(pad) + (state.unitExists ? "✓ exists" : "✗ missing"));
       console.log();
       const choice = await askChoice("What would you like to do?", [
         "Re-run setup and overwrite existing config (will restart service if running)",
@@ -123,8 +110,8 @@ export async function setupCommand(args: string[]): Promise<void> {
   // Step 2: WireGuard UDP port
   const wgPortStr = (await askText(`WireGuard UDP listen port [${defaults.wgPort}]: `)) || String(defaults.wgPort);
   const wgPort = Number(wgPortStr);
-  if (!Number.isInteger(wgPort) || wgPort < 1024 || wgPort > 65535) {
-    console.error("Invalid port — must be an integer between 1024 and 65535.");
+  if (!Number.isInteger(wgPort) || wgPort < 1 || wgPort > 65535) {
+    console.error("Invalid port — must be an integer between 1 and 65535.");
     process.exitCode = 1;
     return;
   }
@@ -140,31 +127,21 @@ export async function setupCommand(args: string[]): Promise<void> {
   const serverIp = hostAtOffset(subnetInput, 1);
   const serverAddress = `${serverIp}/${subnetParsed.prefixLength}`;
 
-  // Step 4: Public host
+  // Step 4: Public host (used in join tokens so peers know where to connect)
   const detected = detectPublicHost();
   const publicHostPrompt = detected
-    ? `Public hostname or IP for clients [${detected}]: `
-    : "Public hostname or IP for clients (leave empty to auto-detect at runtime): ";
+    ? `Public hostname or IP peers connect to [${detected}]: `
+    : "Public hostname or IP peers connect to (leave empty to auto-detect at runtime): ";
   const publicHostInput = await askText(publicHostPrompt);
   const publicHost = publicHostInput || detected || "";
 
-  // Reject characters that would corrupt the env file or systemd unit
   if (publicHost && /[\n\r\0=]/.test(publicHost)) {
-    console.error("Public host contains invalid characters (newlines, null bytes, or '=' are not allowed).");
+    console.error("Public host contains invalid characters.");
     process.exitCode = 1;
     return;
   }
 
-  // Step 5: HTTPS API port
-  const apiPortStr = (await askText(`HTTPS control-plane port [${defaults.apiPort}]: `)) || String(defaults.apiPort);
-  const apiPort = Number(apiPortStr);
-  if (!Number.isInteger(apiPort) || apiPort < 1024 || apiPort > 65535) {
-    console.error("Invalid port — must be an integer between 1024 and 65535.");
-    process.exitCode = 1;
-    return;
-  }
-
-  // Step 6: Service mode
+  // Step 5: Service mode
   const serviceChoice = await askChoice("Systemd service setup?", [
     "Start now + autostart on boot  (recommended)",
     "Autostart on boot only",
@@ -172,7 +149,6 @@ export async function setupCommand(args: string[]): Promise<void> {
     "Install unit only (no start, no enable)",
   ]);
 
-  // Summary + confirmation
   const serviceLabel = ["enable --now", "enable (no start)", "start (no enable)", "install only"][serviceChoice];
   console.log(`
 Summary:
@@ -181,7 +157,6 @@ Summary:
   Tunnel subnet: ${subnetInput}
   Server IP:     ${serverAddress}
   Public host:   ${publicHost || "(auto-detect at runtime)"}
-  API port:      ${apiPort}
   Service:       ${serviceLabel}
 `);
   const confirm = await askText("Proceed? [Y/n]: ");
@@ -194,7 +169,6 @@ Summary:
   const unitName = `wgctl-${iface}`;
   stopIfActive(unitName);
 
-  // Check wg binary
   if (spawnSync("which", ["wg"], { stdio: "ignore" }).status !== 0) {
     console.error(
       "WireGuard tools not found. Install them first:\n\n" +
@@ -224,7 +198,6 @@ Summary:
   // Env file
   const envDir = "/etc/wgctl";
   const envFilePath = `${envDir}/${iface}.env`;
-  const setupToken = randomBytes(32).toString("base64url");
   mkdirSync(envDir, { recursive: true });
   const envLines = [
     `# wgctl environment for interface ${iface}`,
@@ -234,39 +207,11 @@ Summary:
     `WG_LISTEN_PORT=${wgPort}`,
     `WG_SUBNET=${subnetInput}`,
     `WG_SERVER_ADDRESS=${serverAddress}`,
-    `PORT=${apiPort}`,
     `DB_PATH=${envDir}/${iface}.sqlite`,
-    `WGCTL_SETUP_TOKEN=${setupToken}`,
-    `WGCTL_SETUP_USERNAME=admin`,
   ];
   if (publicHost) envLines.push(`PUBLIC_HOST=${publicHost}`);
   writeFileSync(envFilePath, envLines.join("\n") + "\n", { mode: 0o600 });
   console.log(`Wrote ${envFilePath}`);
-
-  // TLS certificate — generate before the service starts so we can print the fingerprint here.
-  // The server's ensureTlsCertificate() would do this on first launch, but pre-generating
-  // lets us show the fingerprint for use with `wgctl login --fingerprint`.
-  const tlsCertPath = "/etc/wgctl/tls/cert.pem";
-  const tlsKeyPath = "/etc/wgctl/tls/key.pem";
-  if (!existsSync(tlsCertPath) || !existsSync(tlsKeyPath)) {
-    mkdirSync("/etc/wgctl/tls", { recursive: true });
-    execFileSync(
-      "openssl",
-      [
-        "req", "-x509", "-newkey", "rsa:4096", "-nodes",
-        "-keyout", tlsKeyPath, "-out", tlsCertPath,
-        "-days", "3650", "-subj", `/CN=${publicHost || hostname()}`,
-      ],
-      { stdio: ["ignore", "ignore", "inherit"] },
-    );
-    chmodSync(tlsKeyPath, 0o600);
-    console.log(`Generated TLS certificate at ${tlsCertPath}`);
-  }
-  const certFpLine = execFileSync("openssl", ["x509", "-in", tlsCertPath, "-noout", "-fingerprint", "-sha256"])
-    .toString()
-    .trim();
-  // Output format: "SHA256 Fingerprint=XX:XX:..." — extract value after '='
-  const certFingerprint = certFpLine.includes("=") ? certFpLine.split("=").slice(1).join("=") : certFpLine;
 
   // Systemd unit
   const unitPath = `/etc/systemd/system/${unitName}.service`;
@@ -275,22 +220,11 @@ Summary:
   execFileSync("systemctl", ["daemon-reload"]);
   console.log(`Wrote ${unitPath}`);
 
-  // Apply service choice
   switch (serviceChoice) {
-    case 0:
-      execFileSync("systemctl", ["enable", "--now", unitName], { stdio: "inherit" });
-      break;
-    case 1:
-      execFileSync("systemctl", ["enable", unitName], { stdio: "inherit" });
-      console.log(`${unitName} enabled — will start on next boot.`);
-      break;
-    case 2:
-      execFileSync("systemctl", ["start", unitName], { stdio: "inherit" });
-      console.log(`${unitName} started.`);
-      break;
-    case 3:
-      console.log(`Unit installed. Start manually with: systemctl start ${unitName}`);
-      break;
+    case 0: execFileSync("systemctl", ["enable", "--now", unitName], { stdio: "inherit" }); break;
+    case 1: execFileSync("systemctl", ["enable", unitName], { stdio: "inherit" }); console.log(`${unitName} enabled — will start on next boot.`); break;
+    case 2: execFileSync("systemctl", ["start", unitName], { stdio: "inherit" }); console.log(`${unitName} started.`); break;
+    case 3: console.log(`Unit installed. Start manually with: systemctl start ${unitName}`); break;
   }
 
   console.log(`
@@ -299,12 +233,7 @@ Setup complete for ${iface}.
   Logs:    journalctl -u ${unitName} -f
   Restart: systemctl restart ${unitName}
 
-Server TLS fingerprint (SHA-256):
-  ${certFingerprint}
-
-Log in from a client machine (copy-paste this command):
-  wgctl login --server https://${publicHost || "<server-host>"}:${apiPort} --setup-token ${setupToken} --fingerprint ${certFingerprint}
-
-The setup token is one-time-use and is stored in ${envFilePath} (mode 0600).
+Add a peer:
+  wgctl peer add <name> --join-token
 `);
 }

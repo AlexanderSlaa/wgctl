@@ -1,23 +1,39 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { publicKey } from "@sourceregistry/node-wireguard";
 import { config } from "../config.js";
-import { parseWgQuickConf } from "./conf-parser.js";
 import { ensureNetworkForwarding } from "./iptables.js";
 import { getWgManager, WgManager } from "./WgManager.js";
-import { upsertStaticPeer } from "../db/peers.repo.js";
+
+interface ParsedConf {
+  privateKey: string;
+  listenPort: number;
+  address: string;
+}
+
+function parseConf(path: string): ParsedConf {
+  const lines = readFileSync(path, "utf8").split("\n");
+  let privateKey = "";
+  let listenPort = 0;
+  let address = "";
+  for (const line of lines) {
+    const [k, ...rest] = line.split("=").map((s) => s.trim());
+    const v = rest.join("=").trim();
+    if (k === "PrivateKey") privateKey = v;
+    else if (k === "ListenPort") listenPort = Number(v);
+    else if (k === "Address") address = v;
+  }
+  if (!privateKey || !listenPort || !address) {
+    throw new Error(`Incomplete WireGuard config at ${path} — missing PrivateKey, ListenPort, or Address.`);
+  }
+  return { privateKey, listenPort, address };
+}
 
 function systemctlStatus(args: string[]): { code: number } {
   const result = spawnSync("systemctl", args, { stdio: "ignore" });
   return { code: result.status ?? 1 };
 }
 
-/**
- * Defensively stops/disables a wg-quick@wg0 systemd unit if one is found
- * active/enabled. On this box today the unit is already disabled/inactive
- * (wg0 was brought up by hand), so this is a no-op in practice — but it must
- * be correct for a fresh box where wg-quick genuinely owns the interface.
- */
 function stopWgQuickUnitIfManaged(unitName: string): void {
   const isEnabled = systemctlStatus(["is-enabled", unitName]);
   if (isEnabled.code === 0) {
@@ -29,13 +45,13 @@ function stopWgQuickUnitIfManaged(unitName: string): void {
     const stillUp = spawnSync("ip", ["link", "show", config.wgInterface]);
     if (stillUp.status === 0) {
       throw new Error(
-        `Stopped ${unitName} but interface ${config.wgInterface} is still present — aborting startup rather than risk double-managing it.`,
+        `Stopped ${unitName} but interface ${config.wgInterface} is still present — aborting to avoid double-managing it.`,
       );
     }
   }
 }
 
-async function takeOverInterface(wg: WgManager, parsed: ReturnType<typeof parseWgQuickConf>): Promise<void> {
+async function takeOverInterface(wg: WgManager, parsed: ParsedConf): Promise<void> {
   const devices = await wg.raw.devices();
   const existing = devices.find((d) => d.name === config.wgInterface);
   const expectedPublicKey = publicKey(parsed.privateKey);
@@ -43,10 +59,9 @@ async function takeOverInterface(wg: WgManager, parsed: ReturnType<typeof parseW
   if (existing) {
     if (existing.publicKey && existing.publicKey !== expectedPublicKey) {
       throw new Error(
-        `${config.wgInterface} is already up with an unexpected public key (${existing.publicKey}, expected ${expectedPublicKey}) — aborting startup rather than silently overwriting a live interface.`,
+        `${config.wgInterface} is already up with an unexpected public key (${existing.publicKey}, expected ${expectedPublicKey}) — aborting to avoid overwriting a live interface.`,
       );
     }
-    // Already exists with the right key (the actual path exercised on this box today) — reuse it, just ensure desired config.
     await wg.raw.configureDevice(config.wgInterface, {
       privateKey: parsed.privateKey,
       listenPort: parsed.listenPort,
@@ -67,38 +82,14 @@ async function takeOverInterface(wg: WgManager, parsed: ReturnType<typeof parseW
   await wg.raw.setUp(config.wgInterface);
 }
 
-/**
- * Ordered, idempotent takeover of the existing wg-quick-managed wg0
- * interface. Must run once at server startup, before app.listen(). Safe to
- * run repeatedly (every boot) since every step either no-ops when the
- * desired state already holds or recreates exactly what was there before.
- */
 export async function bootstrapWireGuard(): Promise<void> {
   const wg = getWgManager();
 
   stopWgQuickUnitIfManaged(`wg-quick@${config.wgInterface}`);
 
-  const parsed = parseWgQuickConf(config.wgConfPath);
-
-  // Snapshot before mutating any kernel state, for audit/rollback.
-  writeFileSync(
-    config.migratedSnapshotPath,
-    JSON.stringify({ migratedAt: new Date().toISOString(), source: config.wgConfPath, parsed }, null, 2),
-    { mode: 0o600 },
-  );
+  const parsed = parseConf(config.wgConfPath);
 
   await takeOverInterface(wg, parsed);
-
-  // Re-assert every static peer found in the original conf (today: just the iPhone).
-  for (const peer of parsed.peers) {
-    await wg.upsertPeer({
-      publicKey: peer.publicKey,
-      presharedKey: peer.presharedKey,
-      allowedIPs: peer.allowedIPs,
-    });
-    const tunnelIp = peer.allowedIPs[0]?.split("/")[0] ?? "";
-    upsertStaticPeer({ publicKey: peer.publicKey, presharedKey: peer.presharedKey ?? "", tunnelIp });
-  }
 
   ensureNetworkForwarding();
 

@@ -54,7 +54,10 @@ function install(): void {
       ENV_FILE_PATH,
       `# Environment for the wgctl systemd service. Uncomment/edit as needed.
 # PUBLIC_HOST=vpn.example.com
-# PORT=8443
+# WG_INTERFACE=wg0
+# WG_LISTEN_PORT=51820
+# WG_SUBNET=10.88.0.0/24
+# WG_SERVER_ADDRESS=10.88.0.1/24
 `,
     );
   }
@@ -88,7 +91,7 @@ export async function serviceCommand(args: string[]): Promise<void> {
       if (!rest.includes("-y") && !rest.includes("--yes")) {
         const answer = await askText(
           `This will stop ${UNIT_NAME}, disable it from starting on boot, and delete ${UNIT_PATH} and ${ENV_FILE_PATH}.\n` +
-            `Your data (/etc/wgctl/db.sqlite, /etc/wgctl/tls/) is NOT touched. Continue? [y/N]: `,
+            `Your WireGuard config (/etc/wireguard/) and data (/etc/wgctl/*.sqlite) are NOT touched. Continue? [y/N]: `,
         );
         if (answer.trim().toLowerCase() !== "y") {
           console.log("Aborted — nothing was changed.");
