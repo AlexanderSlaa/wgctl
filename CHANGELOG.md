@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.7.0...v1.8.0) (2026-06-26)
+
+
+### Features
+
+* **join:** add copy-paste server join tokens ([5ab64e6](https://github.com/AlexanderSlaa/wgctl/commit/5ab64e6bf78ce8e162b68445cbedc09f1bddb906))
+
 # [1.7.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.6.1...v1.7.0) (2026-06-26)
 
 
