@@ -1,10 +1,22 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { generatePresharedKey, generatePrivateKey, publicKey } from "@sourceregistry/node-wireguard";
 import { listAllPeers, findPeerById, findPeerByLabel, deletePeer, createPeer } from "../../server/db/peers.repo.js";
 import { getDb } from "../../server/db/index.js";
-import { getWgManager } from "../../server/wg/WgManager.js";
+import { upsertPeer, removePeer, getLiveStatus, getPublicKey } from "../../server/wg/WgManager.js";
 import { config } from "../../server/config.js";
+
+function wgGenKey(): string {
+  return execFileSync("wg", ["genkey"], { encoding: "utf8" }).trim();
+}
+
+function wgPubKey(privateKey: string): string {
+  return execFileSync("wg", ["pubkey"], { input: privateKey, encoding: "utf8" }).trim();
+}
+
+function wgGenPsk(): string {
+  return execFileSync("wg", ["genpsk"], { encoding: "utf8" }).trim();
+}
 
 const TOKEN_PREFIX = "wgctl-join-v1.";
 const META_PREFIX = "join_token_hash:";
@@ -62,15 +74,14 @@ function storeTokenHash(token: string): void {
     .run(`${META_PREFIX}${hash}`, new Date().toISOString());
 }
 
-async function buildPeerOutput(params: {
+function buildPeerOutput(params: {
   label: string;
   endpoint?: string;
   output?: string;
   joinToken: boolean;
   forLabel?: string;
-}): Promise<void> {
-  const wg = getWgManager();
-  const serverPublicKey = (await wg.raw.device(config.wgInterface)).publicKey;
+}): void {
+  const serverPublicKey = getPublicKey();
   const endpoint = params.endpoint ?? `${config.publicHost}:${config.wgListenPort}`;
 
   let peer = findPeerByLabel(params.label);
@@ -78,31 +89,23 @@ async function buildPeerOutput(params: {
   let psk: string;
 
   if (peer) {
-    // Regenerating token for existing peer — generate new client keypair and preshared key,
+    // Regenerating token for existing peer — generate new client keypair and PSK,
     // then update the peer in WireGuard with the new public key.
-    privKey = generatePrivateKey();
-    const newPubKey = publicKey(privKey);
-    psk = generatePresharedKey();
+    privKey = wgGenKey();
+    const newPubKey = wgPubKey(privKey);
+    psk = wgGenPsk();
     getDb()
       .prepare("UPDATE peers SET public_key = ?, preshared_key = ? WHERE id = ?")
       .run(newPubKey, psk, peer.id);
     peer = findPeerByLabel(params.label)!;
-    await wg.upsertPeer({
-      publicKey: peer.public_key,
-      presharedKey: psk,
-      allowedIPs: [`${peer.tunnel_ip}/32`],
-    });
+    upsertPeer({ publicKey: peer.public_key, presharedKey: psk, allowedIPs: [`${peer.tunnel_ip}/32`] });
   } else {
-    privKey = generatePrivateKey();
-    const peerPublicKey = publicKey(privKey);
-    psk = generatePresharedKey();
+    privKey = wgGenKey();
+    const peerPublicKey = wgPubKey(privKey);
+    psk = wgGenPsk();
     peer = createPeer({ label: params.label, publicKey: peerPublicKey, presharedKey: psk });
     try {
-      await wg.upsertPeer({
-        publicKey: peer.public_key,
-        presharedKey: psk,
-        allowedIPs: [`${peer.tunnel_ip}/32`],
-      });
+      upsertPeer({ publicKey: peer.public_key, presharedKey: psk, allowedIPs: [`${peer.tunnel_ip}/32`] });
     } catch (err) {
       deletePeer(peer.id);
       throw err;
@@ -165,7 +168,7 @@ function parseAddOptions(rest: string[]): { label: string; endpoint?: string; ou
   return { label, endpoint, output, joinToken };
 }
 
-export async function peerCommand(args: string[]): Promise<void> {
+export function peerCommand(args: string[]): void {
   const [sub, ...rest] = args;
 
   switch (sub) {
@@ -180,7 +183,7 @@ export async function peerCommand(args: string[]): Promise<void> {
         return;
       }
       try {
-        await buildPeerOutput({ ...opts });
+        buildPeerOutput({ ...opts });
       } catch (err: any) {
         console.error(err.message);
         process.exitCode = 1;
@@ -201,7 +204,7 @@ export async function peerCommand(args: string[]): Promise<void> {
         return;
       }
       try {
-        await buildPeerOutput({ label, joinToken: true, forLabel: label });
+        buildPeerOutput({ label, joinToken: true, forLabel: label });
       } catch (err: any) {
         console.error(err.message);
         process.exitCode = 1;
@@ -215,10 +218,10 @@ export async function peerCommand(args: string[]): Promise<void> {
         console.log("No peers.");
         return;
       }
-      const live = await getWgManager().getLiveStatus().catch(() => []);
+      const live = getLiveStatus();
       for (const p of peers) {
         const liveEntry = live.find((l) => l.publicKey === p.public_key);
-        const handshake = liveEntry?.lastHandshakeTime ? liveEntry.lastHandshakeTime.toISOString() : "never";
+        const handshake = liveEntry?.lastHandshake ? liveEntry.lastHandshake.toISOString() : "never";
         console.log(`  [${p.id}] ${p.label} — ${p.tunnel_ip} — last handshake: ${handshake}`);
       }
       return;
@@ -238,7 +241,7 @@ export async function peerCommand(args: string[]): Promise<void> {
         process.exitCode = 1;
         return;
       }
-      await getWgManager().removePeer(peer.public_key);
+      removePeer(peer.public_key);
       deletePeer(peer.id);
       console.log(`Removed peer ${peer.id} (${peer.label}, ${peer.tunnel_ip}).`);
       return;

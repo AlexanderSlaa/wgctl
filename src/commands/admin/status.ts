@@ -1,4 +1,4 @@
-import { WireGuardClient } from "@sourceregistry/node-wireguard";
+import { spawnSync } from "node:child_process";
 import { config } from "../../server/config.js";
 
 function parseArgs(args: string[]): { iface: string } {
@@ -11,29 +11,32 @@ function parseArgs(args: string[]): { iface: string } {
   return { iface };
 }
 
-export async function statusCommand(args: string[] = []): Promise<void> {
+export function statusCommand(args: string[] = []): void {
   const { iface } = parseArgs(args);
-  const wg = new WireGuardClient();
-  try {
-    const device = await wg.device(iface);
-    console.log(`Interface: ${device.name}  public-key: ${device.publicKey}  port: ${device.listenPort}`);
-    if (device.peers.length === 0) {
-      console.log("No peers.");
-      return;
-    }
-    for (const peer of device.peers) {
-      const handshake = peer.lastHandshakeTime ? peer.lastHandshakeTime.toISOString() : "never";
-      const allowedIPs = peer.allowedIPs.join(", ");
-      const endpoint = peer.endpoint ?? "(no endpoint)";
-      console.log(`  ${peer.publicKey}  ${allowedIPs}  ${endpoint}  handshake: ${handshake}  rx: ${peer.receiveBytes}  tx: ${peer.transmitBytes}`);
-    }
-  } catch (err: any) {
-    if (err?.code === "ENODEV") {
-      console.log(`Interface ${iface} is not up. Run \`wgctl serve\` or \`systemctl start wgctl-${iface}\`.`);
-      return;
-    }
-    throw err;
-  } finally {
-    wg.close();
+  const result = spawnSync("wg", ["show", iface, "dump"], { encoding: "utf8" });
+
+  if (result.status !== 0) {
+    console.log(`Interface ${iface} is not up. Run \`systemctl start wgctl-${iface}\`.`);
+    return;
+  }
+
+  const lines = (result.stdout ?? "").trim().split("\n").filter(Boolean);
+  if (lines.length === 0) return;
+
+  // First line is the interface: private-key, public-key, listen-port, fwmark
+  const [, ifacePubKey, listenPort] = lines[0].split("\t");
+  console.log(`Interface: ${iface}  public-key: ${ifacePubKey}  port: ${listenPort}`);
+
+  if (lines.length === 1) {
+    console.log("No peers.");
+    return;
+  }
+
+  for (const line of lines.slice(1)) {
+    const [pubkey, , endpoint, allowedIPs, lastHandshakeUnix, rx, tx] = line.split("\t");
+    const ts = Number(lastHandshakeUnix);
+    const handshake = ts > 0 ? new Date(ts * 1000).toISOString() : "never";
+    const ep = endpoint === "(none)" ? "no endpoint" : endpoint;
+    console.log(`  ${pubkey}  ${allowedIPs}  ${ep}  handshake: ${handshake}  rx: ${rx}  tx: ${tx}`);
   }
 }

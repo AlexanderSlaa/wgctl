@@ -1,7 +1,7 @@
 {
   "name": "wgctl",
   "version": "1.8.1",
-  "description": "Orchestrated WireGuard tunnels: an HTTPS control-plane daemon and terminal client in a single binary.",
+  "description": "WireGuard overlay network manager — hub and spoke, join via token or .conf.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -29,10 +29,7 @@
     "test": "tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "npm run build"
   },
-  "dependencies": {
-    "@sourceregistry/node-webserver": "^1.8.0",
-    "@sourceregistry/node-wireguard": "^1.0.5"
-  },
+  "dependencies": {},
   "devDependencies": {
     "typescript": "^5.7.0",
     "@types/node": "^24.0.0",

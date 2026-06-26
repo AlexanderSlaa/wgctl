@@ -3,24 +3,18 @@ import { config } from "./config.js";
 
 export async function serveCommand(): Promise<void> {
   try {
-    await bootstrapWireGuard();
+    bootstrapWireGuard();
   } catch (err: any) {
     if (err?.code === "ENOENT" && err?.path === config.wgConfPath) {
       console.error(`No WireGuard config found at ${config.wgConfPath}.\n\nRun: wgctl setup\n`);
-    } else if (err instanceof Error && err.message.startsWith("Required command `")) {
-      console.error(err.message);
     } else {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(`WireGuard bootstrap failed — refusing to start against a half-configured tunnel:\n\n${message}`);
+      console.error(`WireGuard bootstrap failed:\n\n${err instanceof Error ? err.message : String(err)}`);
     }
     process.exit(1);
   }
 
   console.log(`wgctl serving on ${config.wgInterface} (${config.wgServerAddress})`);
 
-  // Stay alive so systemd keeps the unit active. WireGuard kernel state
-  // persists independently; this process just holds the unit in active state
-  // and can reconcile peers on future SIGHUP if needed.
   await new Promise<void>((resolve) => {
     process.on("SIGTERM", resolve);
     process.on("SIGINT", resolve);

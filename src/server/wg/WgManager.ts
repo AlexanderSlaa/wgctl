@@ -1,63 +1,68 @@
-import { WireGuardClient } from "@sourceregistry/node-wireguard";
-import type { Peer } from "@sourceregistry/node-wireguard";
+import { execFileSync, spawnSync } from "node:child_process";
 import { config } from "../config.js";
 import { listAllPeers } from "../db/peers.repo.js";
 
-export class WgManager {
-  private readonly client = new WireGuardClient();
-  private readonly iface = config.wgInterface;
+export interface LivePeer {
+  publicKey: string;
+  endpoint?: string;
+  allowedIPs: string[];
+  lastHandshake: Date | null;
+  receiveBytes: number;
+  transmitBytes: number;
+}
 
-  async upsertPeer(params: {
-    publicKey: string;
-    presharedKey?: string;
-    allowedIPs: string[];
-  }): Promise<void> {
-    await this.client.configureDevice(this.iface, {
-      peers: [
-        {
-          publicKey: params.publicKey,
-          presharedKey: params.presharedKey,
-          allowedIPs: params.allowedIPs,
-          replaceAllowedIPs: true,
-          persistentKeepaliveInterval: config.persistentKeepalive,
-        },
-      ],
-    });
-  }
-
-  async removePeer(publicKey: string): Promise<void> {
-    await this.client.configureDevice(this.iface, {
-      peers: [{ publicKey, remove: true }],
-    });
-  }
-
-  async getLiveStatus(): Promise<Peer[]> {
-    const device = await this.client.device(this.iface);
-    return device.peers;
-  }
-
-  /** Re-pushes every peer from DB into the kernel. Safe to call on restart — kernel state is wiped on reboot. */
-  async reconcileFromDb(): Promise<void> {
-    const peers = listAllPeers();
-    for (const peer of peers) {
-      await this.upsertPeer({
-        publicKey: peer.public_key,
-        presharedKey: peer.preshared_key ?? undefined,
-        allowedIPs: [`${peer.tunnel_ip}/32`],
-      });
-    }
-  }
-
-  get raw(): WireGuardClient {
-    return this.client;
+export function upsertPeer(params: {
+  publicKey: string;
+  presharedKey?: string;
+  allowedIPs: string[];
+}): void {
+  const args = [
+    "set", config.wgInterface,
+    "peer", params.publicKey,
+    "allowed-ips", params.allowedIPs.join(","),
+    "persistent-keepalive", String(config.persistentKeepalive),
+  ];
+  if (params.presharedKey) {
+    args.push("preshared-key", "/dev/stdin");
+    execFileSync("wg", args, { input: params.presharedKey });
+  } else {
+    execFileSync("wg", args);
   }
 }
 
-let manager: WgManager | undefined;
+export function removePeer(publicKey: string): void {
+  execFileSync("wg", ["set", config.wgInterface, "peer", publicKey, "remove"]);
+}
 
-export function getWgManager(): WgManager {
-  if (!manager) {
-    manager = new WgManager();
+export function getPublicKey(): string {
+  return execFileSync("wg", ["show", config.wgInterface, "public-key"], { encoding: "utf8" }).trim();
+}
+
+export function getLiveStatus(): LivePeer[] {
+  const result = spawnSync("wg", ["show", config.wgInterface, "dump"], { encoding: "utf8" });
+  if (result.status !== 0) return [];
+  const lines = (result.stdout ?? "").trim().split("\n").filter(Boolean);
+  // First line is the interface row; skip it.
+  return lines.slice(1).map((line) => {
+    const [pubkey, , endpoint, allowedIPs, lastHandshakeUnix, rx, tx] = line.split("\t");
+    const ts = Number(lastHandshakeUnix);
+    return {
+      publicKey: pubkey,
+      endpoint: endpoint === "(none)" ? undefined : endpoint,
+      allowedIPs: allowedIPs.split(",").filter(Boolean),
+      lastHandshake: ts > 0 ? new Date(ts * 1000) : null,
+      receiveBytes: Number(rx),
+      transmitBytes: Number(tx),
+    };
+  });
+}
+
+export function reconcileFromDb(): void {
+  for (const peer of listAllPeers()) {
+    upsertPeer({
+      publicKey: peer.public_key,
+      presharedKey: peer.preshared_key ?? undefined,
+      allowedIPs: [`${peer.tunnel_ip}/32`],
+    });
   }
-  return manager;
 }

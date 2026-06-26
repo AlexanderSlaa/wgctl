@@ -4,7 +4,6 @@ import { realpathSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { askText, askChoice } from "../../client/prompts.js";
 import { isValidCidr, hostAtOffset, parseCidr } from "../../shared/cidr.js";
-import { ensureNativeAddon } from "../../shared/ensure-addon.js";
 
 function detectPublicHost(): string | undefined {
   for (const addrs of Object.values(networkInterfaces())) {
@@ -67,8 +66,6 @@ export async function setupCommand(args: string[]): Promise<void> {
   const force = args.includes("--force") || args.includes("-f");
   const ifaceFlagIdx = args.findIndex((a) => a === "--interface" || a === "-i");
   const ifaceFlag = ifaceFlagIdx !== -1 ? args[ifaceFlagIdx + 1] : undefined;
-
-  await ensureNativeAddon();
 
   // Step 1: interface name
   let iface: string;

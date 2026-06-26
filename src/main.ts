@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { checkForUpdate } from "./version-check.js";
 import { ensureRoot } from "./elevate.js";
-import { ensureNativeAddon } from "./shared/ensure-addon.js";
 
 const ROOT_REQUIRED_COMMANDS = new Set([
   "serve",
@@ -12,8 +11,6 @@ const ROOT_REQUIRED_COMMANDS = new Set([
   "join",
   "uninstall",
 ]);
-
-const NATIVE_ADDON_COMMANDS = new Set(["serve", "status", "peer"]);
 
 const HELP = `wgctl — WireGuard overlay network manager
 
@@ -61,10 +58,6 @@ async function main(): Promise<void> {
     ensureRoot();
   }
 
-  if (command && NATIVE_ADDON_COMMANDS.has(command)) {
-    await ensureNativeAddon();
-  }
-
   switch (command) {
     case "setup":
       await (await import("./commands/admin/setup.js")).setupCommand(args);
@@ -73,10 +66,10 @@ async function main(): Promise<void> {
       await (await import("./server/serve.js")).serveCommand();
       break;
     case "peer":
-      await (await import("./commands/admin/peer.js")).peerCommand(args);
+      (await import("./commands/admin/peer.js")).peerCommand(args);
       break;
     case "status":
-      await (await import("./commands/admin/status.js")).statusCommand(args);
+      (await import("./commands/admin/status.js")).statusCommand(args);
       break;
     case "join":
       await (await import("./commands/join.js")).joinCommand(args);
@@ -101,16 +94,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  if (err?.code === "ERR_DLOPEN_FAILED" && /\.so(\.\d+)?: cannot open shared object file/.test(err.message ?? "")) {
-    console.error(
-      `${err.message}\n\n` +
-        "wgctl's native WireGuard addon needs the libmnl and libssl runtime libraries:\n\n" +
-        "  Debian/Ubuntu:  apt-get install -y libmnl0 libssl3\n" +
-        "  Fedora/RHEL:    dnf install -y libmnl openssl-libs\n" +
-        "  Alpine:         apk add libmnl openssl\n",
-    );
-  } else {
-    console.error(err instanceof Error ? err.message : err);
-  }
+  console.error(err instanceof Error ? err.message : err);
   process.exitCode = 1;
 });
