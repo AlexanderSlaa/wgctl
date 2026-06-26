@@ -1,3 +1,12 @@
+# [1.9.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.8.1...v1.9.0) (2026-06-26)
+
+
+### Features
+
+* drop node-wireguard and node-webserver native deps ([94ac059](https://github.com/AlexanderSlaa/wgctl/commit/94ac05970c132dab9da8d8d41a2649b55c77ab37))
+* simplify into flat overlay network manager ([7c3b588](https://github.com/AlexanderSlaa/wgctl/commit/7c3b5886e0e48541f5dccfc48b93c5116c2b1bf2))
+* simplify into flat overlay network manager ([f647ace](https://github.com/AlexanderSlaa/wgctl/commit/f647ace6f12199796ec606e1ff89a374c64a6f31))
+
 ## [1.8.1](https://github.com/AlexanderSlaa/wgctl/compare/v1.8.0...v1.8.1) (2026-06-26)
 
 
