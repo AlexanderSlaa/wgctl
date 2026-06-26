@@ -20,6 +20,22 @@ happens automatically over HTTPS — no hand-written WireGuard config files.
 
 ## Install
 
+On a fresh Debian/Ubuntu server, the quickest path is the hosted installer:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/AlexanderSlaa/wgctl/main/scripts/install.sh | sudo bash
+```
+
+It installs the Debian runtime packages, ensures Node.js 22 is available,
+installs `wgctl` from npm, and then starts `wgctl setup`. To install the
+binary without starting setup, run:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/AlexanderSlaa/wgctl/main/scripts/install.sh | sudo env RUN_SETUP=0 bash
+```
+
+Manual install:
+
 ```sh
 npm install -g wgctl
 ```
