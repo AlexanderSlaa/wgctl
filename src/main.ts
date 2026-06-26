@@ -29,17 +29,16 @@ Hub server administration (run locally on the server, as root):
   wgctl peer ls               List peers with tunnel IPs and last handshake times.
   wgctl peer rm <id|label>    Remove a peer from the overlay.
   wgctl status                Show live WireGuard interface status.
-  wgctl service install       Write the systemd unit (without starting it)
-  wgctl service enable        Start now and on every boot
-  wgctl service disable       Stop and remove from boot
-  wgctl service start         Start the service
-  wgctl service stop          Stop the service (keeps autostart)
-  wgctl service restart       Restart the service
-  wgctl service uninstall [-y]
-                              Stop, disable, and delete the unit
-  wgctl service status        Show systemd status
-  wgctl service logs [-f] [-n N]
-                              Show logs via journalctl
+  wgctl service enable   [--interface <name>]   Start now and on every boot
+  wgctl service disable  [--interface <name>]   Stop and remove from boot
+  wgctl service start    [--interface <name>]   Start the service
+  wgctl service stop     [--interface <name>]   Stop the service (keeps autostart)
+  wgctl service restart  [--interface <name>]   Restart the service
+  wgctl service status   [--interface <name>]   Show systemd status
+  wgctl service logs     [--interface <name>] [-f] [-n N]
+                                               Show logs via journalctl
+  wgctl service uninstall [--interface <name>] [-y]
+                                               Stop, disable, delete unit + env file
   wgctl uninstall [-y] [--purge-data]
                               Stop services and remove wgctl artifacts
   wgctl update [-y]           Check npm for a newer version and install it
