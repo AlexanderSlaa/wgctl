@@ -1,3 +1,10 @@
+## [1.8.1](https://github.com/AlexanderSlaa/wgctl/compare/v1.8.0...v1.8.1) (2026-06-26)
+
+
+### Bug Fixes
+
+* **join:** make join tokens one-time use ([a6fa6c1](https://github.com/AlexanderSlaa/wgctl/commit/a6fa6c16bbff0586ead10455479499de1ea6e5ac))
+
 # [1.8.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.7.0...v1.8.0) (2026-06-26)
 
 
