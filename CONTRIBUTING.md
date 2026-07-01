@@ -7,68 +7,64 @@ For installing and using the published package, see [README.md](./README.md).
 
 ```sh
 git clone https://github.com/AlexanderSlaa/wgctl.git && cd wgctl
-sudo bash scripts/install-native-deps.sh   # build toolchain for the native WireGuard addon
 npm install
 npm run build
-node dist/main.js serve   # or: npm link && wgctl serve
+node dist/main.js --help
 ```
 
-A local git checkout has no `bin/<triplet>/` prebuild (those only get staged
-into the published npm tarball — see `node_modules/@sourceregistry/node-wireguard/scripts/install.js`),
-so `npm install` always builds the native addon from source here, and needs
-`scripts/install-native-deps.sh` (`build-essential`, `pkg-config`,
-`libmnl-dev`, `libsodium-dev`) run first or it'll fail. This is *not* true
-for end users installing the published `wgctl` package on x86_64/aarch64
-Linux — they get a prebuild and skip the native build entirely, needing only
-the runtime libraries (`scripts/install-runtime-deps.sh`) — see README.md.
+No native addons. No runtime npm dependencies. Needs Node.js 22+ (uses the
+built-in `node:sqlite` module) and `wireguard-tools` on Linux to actually
+run any WireGuard commands.
 
 ```sh
-npm test    # currently just `tsc --noEmit` — there are no unit tests yet (see below)
-npm run build
+npm test        # tsc --noEmit typecheck
+npm run build   # tsc + copies schema.sql to dist/server/db/
 ```
 
 ## Project layout
 
 ```
 src/
-├── main.ts                  CLI entrypoint — dispatches to everything below
-├── version-check.ts          npm update-check/notice logic
-├── shared/                  pure helpers used by both server and client (CIDR math, iptables/sysctl)
-├── server/                  the daemon (`wgctl serve`)
-│   ├── app.ts                 HTTPS app + middleware (node-webserver)
-│   ├── routes/                 /api/auth, /api/networks, /api/peers
-│   ├── db/                    SQLite schema + repos (users, networks, peers)
-│   ├── auth/                   session tokens, password hashing
+├── main.ts                   CLI entrypoint — arg dispatch, auto sudo-elevate
+├── elevate.ts                re-exec self under sudo for root-required commands
+├── version-check.ts          passive npm update-check shown after each command
+├── shared/
+│   ├── cidr.ts               CIDR math (parse, validate, hostAtOffset)
+│   └── index.ts              re-exports
+├── client/
+│   └── prompts.ts            readline helpers: askText, askChoice
+├── server/
+│   ├── config.ts             reads /etc/wgctl/<iface>.env into a typed config object
+│   ├── db/
+│   │   ├── index.ts          opens the SQLite DB, runs schema.sql on first open
+│   │   ├── peers.repo.ts     CRUD for the peers table
+│   │   └── schema.sql        DB schema (peers + meta/token-hash tables)
 │   └── wg/
-│       ├── bootstrap.ts         the wg0-takeover sequence — run this past someone before changing it
-│       ├── WgManager.ts          wraps the single shared WireGuardClient instance
-│       └── conf-parser.ts       parses the pre-existing /etc/wireguard/wg0.conf during takeover
-├── client/                  the terminal client (`login`/`networks`/`connect`/`status`/`down`)
-│   ├── api-client.ts            talks to the server's HTTP API
-│   ├── https-client.ts          TLS fingerprint pinning (trust-on-first-use)
-│   └── config-store.ts          ~/.config/wgctl/ (per-server sessions, keypairs)
-└── commands/admin/          server-local admin commands (user/network/peer/service) — operate
-                              directly on the SQLite DB and WgManager, no HTTP involved
+│       ├── WgManager.ts      wraps `wg` CLI — upsert/remove live peers, parse `wg show dump`,
+│       │                     append/remove peer stanzas in the .conf file
+│       └── ip-pool.ts        allocates tunnel IPs from the hub subnet
+└── commands/
+    ├── join.ts               wgctl join / wgctl join rm
+    ├── update.ts             wgctl update
+    ├── updown.ts             wgctl up / wgctl down
+    └── admin/
+        ├── peer.ts           wgctl peer add / ls / rm / token
+        ├── service.ts        wgctl service enable/disable/start/stop/restart/status/logs/uninstall
+        ├── setup.ts          wgctl setup interactive wizard
+        ├── status.ts         wgctl status
+        └── uninstall.ts      wgctl uninstall
 ```
 
-A few things worth knowing before changing `wg/bootstrap.ts` specifically:
-it's responsible for taking over a pre-existing, hand-configured `wg0`
-interface (reusing its private key, re-asserting its peers as "static") and
-must stay idempotent/non-destructive — it runs on every `wgctl serve` start,
-including every systemd restart. The kernel-side `AllowedIPs` pushed for a
-peer (its own tunnel IP + advertised subnets) and the client-side
-`AllowedIPs` returned over the API (the networks it's authorized for) are
-deliberately different lists for the same connection — see the comment in
-`WgManager.ts` if this trips you up.
+There is no HTTP server, no authentication layer, and no daemon process.
+Every command runs as a short-lived CLI invocation that talks directly to
+the `wg` and `wg-quick` binaries, systemd, and the SQLite database.
 
 ## Testing
 
-There's no real test suite yet beyond a typecheck (`npm test`) — this is the
-biggest gap if you want to contribute. Manual verification so far has
-leaned on running the actual binary against a real WireGuard interface
-(see git history for examples of staged, non-destructive verification
-against a live `wg0`). Unit tests for the pure modules (`shared/cidr.ts`,
-the conf parser, the IP pool allocator) would be a good first contribution.
+No unit test suite yet beyond `npm test` (typecheck). Manual verification
+has leaned on running against a real WireGuard interface. Good first
+contributions: unit tests for `shared/cidr.ts`, `server/wg/ip-pool.ts`,
+and the `renderConf`/`decodeToken` functions in the join/peer commands.
 
 ## Commit messages and releases
 
@@ -86,8 +82,7 @@ Don't bump the version in `package.json` by hand — `semantic-release`
 computes the next version from commit messages and updates it, the
 changelog, and the git tag automatically on every push to `main`.
 
-The CI workflow has two jobs: `test` (build + typecheck + a smoke test that
-actually runs the built binary) on every push/PR, and `release` (runs
-`semantic-release`) on pushes to `main` only, after `test` passes. Publishing
-requires an `NPM_TOKEN` repository secret; `GITHUB_TOKEN` is provided
-automatically by GitHub Actions.
+The CI workflow has two jobs: `test` (build + typecheck) on every push/PR,
+and `release` (runs `semantic-release`) on pushes to `main` only, after
+`test` passes. Publishing requires an `NPM_TOKEN` repository secret;
+`GITHUB_TOKEN` is provided automatically by GitHub Actions.
