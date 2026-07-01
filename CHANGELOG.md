@@ -1,3 +1,10 @@
+# [1.13.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.12.0...v1.13.0) (2026-07-01)
+
+
+### Features
+
+* expose LAN subnets to overlay via --routes flag ([4258311](https://github.com/AlexanderSlaa/wgctl/commit/4258311b70527889e58e5f0535ebfab27432df64))
+
 # [1.12.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.11.0...v1.12.0) (2026-06-26)
 
 

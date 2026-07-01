@@ -1,6 +1,6 @@
 {
   "name": "wgctl",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "description": "WireGuard overlay network manager — hub and spoke, join via token or .conf.",
   "license": "MIT",
   "type": "module",
