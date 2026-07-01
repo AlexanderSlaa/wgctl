@@ -21,6 +21,7 @@ interface JoinToken {
   allowedIPs: string[];
   persistentKeepalive: number;
   dns?: string;
+  advertisedRoutes?: string[];
 }
 
 function usage(): void {
@@ -98,7 +99,8 @@ function decodeToken(token: string): JoinToken {
     !Array.isArray(body.allowedIPs) ||
     !body.allowedIPs.every((ip) => typeof ip === "string") ||
     typeof body.persistentKeepalive !== "number" ||
-    (body.dns !== undefined && typeof body.dns !== "string")
+    (body.dns !== undefined && typeof body.dns !== "string") ||
+    (body.advertisedRoutes !== undefined && (!Array.isArray(body.advertisedRoutes) || !body.advertisedRoutes.every((r) => typeof r === "string")))
   ) {
     throw new Error("Invalid join token payload.");
   }
@@ -131,13 +133,19 @@ function markTokenUsed(db: DatabaseSync, token: string): void {
   );
 }
 
-function renderConf(token: JoinToken): string {
+function renderConf(token: JoinToken, outIface?: string): string {
   const lines = [
     "[Interface]",
     `PrivateKey = ${token.privateKey}`,
     `Address = ${token.clientAddress}`,
   ];
   if (token.dns) lines.push(`DNS = ${token.dns}`);
+  if (outIface) {
+    lines.push(
+      `PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o ${outIface} -j MASQUERADE`,
+      `PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o ${outIface} -j MASQUERADE`,
+    );
+  }
   lines.push(
     "",
     "[Peer]",
@@ -148,6 +156,24 @@ function renderConf(token: JoinToken): string {
     `PersistentKeepalive = ${token.persistentKeepalive}`,
   );
   return lines.join("\n") + "\n";
+}
+
+function detectDefaultIface(): string | undefined {
+  const result = spawnSync("ip", ["route", "show", "default"], { encoding: "utf8" });
+  return result.stdout?.match(/\bdev\s+(\S+)/)?.[1];
+}
+
+function isIpForwardEnabled(): boolean {
+  try {
+    return readFileSync("/proc/sys/net/ipv4/ip_forward", "utf8").trim() === "1";
+  } catch {
+    return false;
+  }
+}
+
+function enableIpForward(iface: string): void {
+  spawnSync("sysctl", ["-w", "net.ipv4.ip_forward=1"], { stdio: "inherit" });
+  writeFileSync(`/etc/sysctl.d/99-wgctl-${iface}.conf`, "net.ipv4.ip_forward=1\n", { mode: 0o644 });
 }
 
 function checkWgQuick(): void {
@@ -258,14 +284,40 @@ export async function joinCommand(args: string[]): Promise<void> {
     return;
   }
 
+  const advertisedRoutes = token.advertisedRoutes ?? [];
+  let outIface: string | undefined;
+
+  if (advertisedRoutes.length > 0) {
+    outIface = detectDefaultIface();
+    if (!outIface) {
+      console.warn("Warning: could not detect default outbound interface — skipping PostUp/PostDown iptables rules.");
+      console.warn("Add masquerade rules manually after joining.");
+    }
+  }
+
   mkdirSync("/etc/wireguard", { recursive: true, mode: 0o700 });
-  writeFileSync(paths.confPath, renderConf(token), { mode: 0o600 });
+  writeFileSync(paths.confPath, renderConf(token, outIface), { mode: 0o600 });
   console.log(`Wrote ${paths.confPath} for ${token.label}.`);
+
+  if (advertisedRoutes.length > 0) {
+    if (!isIpForwardEnabled()) {
+      console.log("Enabling IP forwarding (required to advertise routes)...");
+      enableIpForward(iface);
+    } else {
+      console.log("IP forwarding already enabled.");
+    }
+    if (outIface) {
+      console.log(`Routes ${advertisedRoutes.join(", ")} will be masqueraded via ${outIface}.`);
+    }
+  }
 
   execFileSync("systemctl", ["enable", "--now", paths.unitName], { stdio: "inherit" });
 
   markTokenUsed(db, rawToken);
 
   console.log(`\nConnected ${iface} (${token.clientAddress}) → ${token.endpoint}`);
+  if (advertisedRoutes.length > 0) {
+    console.log(`Advertising to network: ${advertisedRoutes.join(", ")}`);
+  }
   console.log(`Status: systemctl status ${paths.unitName}`);
 }

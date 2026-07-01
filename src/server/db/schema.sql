@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS peers (
   public_key    TEXT NOT NULL UNIQUE,
   preshared_key TEXT,
   tunnel_ip     TEXT NOT NULL UNIQUE,
+  routes        TEXT NOT NULL DEFAULT '',
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

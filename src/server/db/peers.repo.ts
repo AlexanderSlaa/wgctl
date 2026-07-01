@@ -8,6 +8,7 @@ export interface PeerRow {
   public_key: string;
   preshared_key: string | null;
   tunnel_ip: string;
+  routes: string;
   created_at: string;
 }
 
@@ -41,6 +42,7 @@ export function createPeer(params: {
   label: string;
   publicKey: string;
   presharedKey: string;
+  routes?: string[];
 }): PeerRow {
   const db = getDb();
   if (findPeerByLabel(params.label)) {
@@ -52,10 +54,22 @@ export function createPeer(params: {
 
   // Reserve offset 1 (server's own tunnel IP).
   const tunnelIp = allocateNextIp(config.wgSubnet, allUsedIps(), [1]);
+  const routes = (params.routes ?? []).join(",");
   db.prepare(
-    "INSERT INTO peers (label, public_key, preshared_key, tunnel_ip) VALUES (?, ?, ?, ?)",
-  ).run(params.label, params.publicKey, params.presharedKey, tunnelIp);
+    "INSERT INTO peers (label, public_key, preshared_key, tunnel_ip, routes) VALUES (?, ?, ?, ?, ?)",
+  ).run(params.label, params.publicKey, params.presharedKey, tunnelIp, routes);
   return findPeerByPublicKey(params.publicKey)!;
+}
+
+export function getAllAdvertisedRoutes(): string[] {
+  const rows = getDb().prepare("SELECT routes FROM peers WHERE routes != ''").all() as { routes: string }[];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    for (const r of row.routes.split(",")) {
+      if (r) seen.add(r);
+    }
+  }
+  return [...seen];
 }
 
 export function deletePeer(id: number): void {

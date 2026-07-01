@@ -14,6 +14,12 @@ export function getDb(): DatabaseSync {
     db = new DatabaseSync(config.dbPath);
     const schema = readFileSync(join(__dirname, "schema.sql"), "utf8");
     db.exec(schema);
+    // Migration: add routes column to existing databases.
+    try {
+      db.exec("ALTER TABLE peers ADD COLUMN routes TEXT NOT NULL DEFAULT ''");
+    } catch {
+      // Column already exists — safe to ignore.
+    }
   }
   return db;
 }

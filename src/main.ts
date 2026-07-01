@@ -21,8 +21,9 @@ First-time setup (run on the hub server, as root):
                               env file, install systemd service.
 
 Hub server administration (run locally on the server, as root):
-  wgctl peer add <label> [--endpoint <host:port>] [--output <file>] [--join-token]
-                              Add a peer. Prints a join token or .conf by default.
+  wgctl peer add <label> [--endpoint <host:port>] [--routes <cidr,...>] [--output <file>] [--join-token]
+                              Add a peer. --routes advertises LAN subnets behind
+                              this peer to the hub and all future join tokens.
   wgctl peer token <label>    Re-generate a join token for an existing peer.
   wgctl peer ls               List peers with tunnel IPs and last handshake times.
   wgctl peer rm <id|label>    Remove a peer from the overlay.

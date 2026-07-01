@@ -49,14 +49,20 @@ and get a plain permission error instead.
 Run this once on the machine that will act as the central hub:
 
 ```sh
-sudo wgctl setup
+sudo wgctl setup [--interface <name>] [--force]
 ```
 
-The wizard asks for the WireGuard UDP port (default 51820), the tunnel
-subnet (default `10.88.0.0/24`), the public IP/hostname peers will connect
-to, and whether to enable the service now. It writes `/etc/wireguard/wg0.conf`
-(with PostUp/PreDown forwarding rules built in) and enables `wg-quick@wg0`
-via systemd so the interface comes back up automatically after a reboot.
+The wizard asks for:
+- WireGuard interface name (default `wg0`)
+- UDP listen port (default 51820, or 51820+N for `wgN`)
+- Tunnel subnet CIDR (default `10.88.0.0/24`)
+- Public hostname or IP peers connect to (auto-detected from network interfaces)
+- Systemd service mode: start now + autostart on boot, autostart only, start now only, or install unit only
+
+It writes `/etc/wireguard/<iface>.conf` (with PostUp/PreDown forwarding rules
+built in) and an env file at `/etc/wgctl/<iface>.env`. Use `--force` to
+overwrite an existing configuration without prompting. If setup was already
+run, the wizard detects this and offers to re-run or exit.
 
 ### Running as a systemd service
 
@@ -70,7 +76,7 @@ sudo wgctl service start
 sudo wgctl service stop
 sudo wgctl service restart
 sudo wgctl service status
-sudo wgctl service logs -f
+sudo wgctl service logs [-f] [-n N]
 sudo wgctl service uninstall [-y]   # disable and remove env file
 ```
 
@@ -99,7 +105,7 @@ sudo wgctl peer add <label>
 Other peer management:
 
 ```sh
-sudo wgctl peer ls              # list all peers with tunnel IPs and last handshake times
+sudo wgctl peer ls              # list all peers with tunnel IPs, routes, and last handshake
 sudo wgctl peer rm <id|label>   # remove a peer
 sudo wgctl peer token <label>   # re-generate a join token for an existing peer
 ```
@@ -109,6 +115,38 @@ sudo wgctl peer token <label>   # re-generate a join token for an existing peer
 Every peer receives `AllowedIPs = <tunnel-subnet>` (e.g. `10.88.0.0/24`),
 so peer A can reach peer B at `10.88.0.B` by routing through the hub. The
 hub enables IP forwarding and an iptables FORWARD rule automatically.
+
+### Exposing LAN subnets to the overlay
+
+A peer can advertise subnets from its local network so other peers in the
+overlay can reach them. Pass `--routes` when adding the peer on the hub:
+
+```sh
+sudo wgctl peer add office --routes 192.168.1.0/24 --join-token
+```
+
+Multiple subnets are comma-separated:
+
+```sh
+sudo wgctl peer add office --routes 192.168.1.0/24,10.0.0.0/8 --join-token
+```
+
+When the token is applied on the peer machine with `wgctl join`, wgctl
+automatically:
+
+1. Detects the default outbound interface (e.g. `eth0`)
+2. Writes `PostUp`/`PostDown` iptables masquerade rules into the WireGuard
+   config for that interface
+3. Enables `net.ipv4.ip_forward` and persists it to
+   `/etc/sysctl.d/99-wgctl-<iface>.conf`
+
+Every join token generated after this point includes the advertised subnets
+in its `AllowedIPs`, so any peer that joins later can reach the exposed LAN
+automatically.
+
+> **Note:** Tokens generated *before* the `--routes` peer was added will not
+> include the new subnets. Regenerate them with `wgctl peer token <label>`
+> and re-apply on those machines.
 
 ## Joining the overlay
 
@@ -131,7 +169,7 @@ sudo wgctl join 'wgctl-join-v1.<token>' --interface wg1
 To leave the overlay:
 
 ```sh
-sudo wgctl join rm              # stops wg-quick@wg0 and removes the config
+sudo wgctl join rm [-y]              # stops wg-quick@wg0 and removes the config
 sudo wgctl join rm --interface wg1
 ```
 
@@ -141,6 +179,19 @@ hub and import it into the WireGuard app:
 ```sh
 sudo wgctl peer add my-phone --output phone.conf
 ```
+
+## Starting and stopping tunnels
+
+Start or stop an existing tunnel without changing its configuration or
+systemd autostart setting:
+
+```sh
+sudo wgctl up [--interface <name>]    # start a stopped tunnel (hub or peer)
+sudo wgctl down [--interface <name>]  # stop a running tunnel, keep config
+```
+
+Both commands work on any wgctl-managed unit — the `wg-quick@<iface>` unit
+used by joined peers or the legacy `wgctl-<iface>` hub unit.
 
 ## Checking status
 
@@ -174,10 +225,13 @@ sudo wgctl service restart
 ## Uninstalling
 
 ```sh
-sudo wgctl uninstall              # stops services, removes unit/env files
-sudo wgctl uninstall --purge-data # also removes the SQLite DB and WireGuard conf
-sudo wgctl uninstall --npm        # also runs npm uninstall -g wgctl
+sudo wgctl uninstall                   # stops services, removes unit/env files
+sudo wgctl uninstall --purge-data      # also removes SQLite DB, WireGuard conf, sysctl files
+sudo wgctl uninstall --client-config   # also removes ~/.config/wgctl client sessions/keys
+sudo wgctl uninstall --npm             # also runs npm uninstall -g wgctl
 ```
+
+Flags can be combined. Use `-y` to skip confirmation prompts.
 
 ## Security considerations
 

@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { listAllPeers, findPeerById, findPeerByLabel, deletePeer, createPeer } from "../../server/db/peers.repo.js";
+import { listAllPeers, findPeerById, findPeerByLabel, deletePeer, createPeer, getAllAdvertisedRoutes } from "../../server/db/peers.repo.js";
+import { isValidCidr } from "../../shared/cidr.js";
 import { getDb } from "../../server/db/index.js";
 import { upsertPeer, removePeer, getLiveStatus, getPublicKey, addPeerToConf, removePeerFromConf } from "../../server/wg/WgManager.js";
 import { config } from "../../server/config.js";
@@ -23,7 +24,7 @@ const META_PREFIX = "join_token_hash:";
 
 function usage(): void {
   console.log(`Usage:
-  wgctl peer add <label> [--endpoint <host:port>] [--output <file>] [--join-token]
+  wgctl peer add <label> [--endpoint <host:port>] [--routes <cidr,...>] [--output <file>] [--join-token]
   wgctl peer token <label>
   wgctl peer ls
   wgctl peer rm <id|label>`);
@@ -77,6 +78,7 @@ function storeTokenHash(token: string): void {
 function buildPeerOutput(params: {
   label: string;
   endpoint?: string;
+  routes?: string[];
   output?: string;
   joinToken: boolean;
   forLabel?: string;
@@ -98,26 +100,33 @@ function buildPeerOutput(params: {
       .prepare("UPDATE peers SET public_key = ?, preshared_key = ? WHERE id = ?")
       .run(newPubKey, psk, peer.id);
     peer = findPeerByLabel(params.label)!;
-    upsertPeer({ publicKey: peer.public_key, presharedKey: psk, allowedIPs: [`${peer.tunnel_ip}/32`] });
+    const existingRoutes = peer.routes ? peer.routes.split(",").filter(Boolean) : [];
+    const serverAllowedIPs = [`${peer.tunnel_ip}/32`, ...existingRoutes];
+    upsertPeer({ publicKey: peer.public_key, presharedKey: psk, allowedIPs: serverAllowedIPs });
   } else {
     privKey = wgGenKey();
     const peerPublicKey = wgPubKey(privKey);
     psk = wgGenPsk();
-    peer = createPeer({ label: params.label, publicKey: peerPublicKey, presharedKey: psk });
+    const routes = params.routes ?? [];
+    peer = createPeer({ label: params.label, publicKey: peerPublicKey, presharedKey: psk, routes });
     try {
-      upsertPeer({ publicKey: peer.public_key, presharedKey: psk, allowedIPs: [`${peer.tunnel_ip}/32`] });
-      addPeerToConf({ label: params.label, publicKey: peer.public_key, presharedKey: psk, allowedIPs: [`${peer.tunnel_ip}/32`], keepalive: config.persistentKeepalive });
+      const serverAllowedIPs = [`${peer.tunnel_ip}/32`, ...routes];
+      upsertPeer({ publicKey: peer.public_key, presharedKey: psk, allowedIPs: serverAllowedIPs });
+      addPeerToConf({ label: params.label, publicKey: peer.public_key, presharedKey: psk, allowedIPs: serverAllowedIPs, keepalive: config.persistentKeepalive });
     } catch (err) {
       deletePeer(peer.id);
       throw err;
     }
-    console.log(`Created peer ${peer.id} (${params.label}) — tunnel IP: ${peer.tunnel_ip}`);
+    const routeSuffix = routes.length ? ` — advertising: ${routes.join(", ")}` : "";
+    console.log(`Created peer ${peer.id} (${params.label}) — tunnel IP: ${peer.tunnel_ip}${routeSuffix}`);
   }
 
   const subnetPrefixLength = config.wgSubnet.split("/")[1];
   const clientAddress = `${peer.tunnel_ip}/${subnetPrefixLength}`;
-  // Clients route the entire tunnel subnet so all peers can reach each other.
-  const allowedIPs = [config.wgSubnet];
+  // Clients route the tunnel subnet + all subnets advertised by any peer.
+  const allAdvertisedRoutes = getAllAdvertisedRoutes();
+  const allowedIPs = [config.wgSubnet, ...allAdvertisedRoutes];
+  const peerRoutes = peer.routes ? peer.routes.split(",").filter(Boolean) : [];
 
   const tokenPayload = {
     label: params.label,
@@ -128,6 +137,7 @@ function buildPeerOutput(params: {
     endpoint,
     allowedIPs,
     persistentKeepalive: config.persistentKeepalive,
+    advertisedRoutes: peerRoutes,
   };
 
   if (params.joinToken) {
@@ -144,11 +154,12 @@ function buildPeerOutput(params: {
   }
 }
 
-function parseAddOptions(rest: string[]): { label: string; endpoint?: string; output?: string; joinToken: boolean } {
+function parseAddOptions(rest: string[]): { label: string; endpoint?: string; routes?: string[]; output?: string; joinToken: boolean } {
   const [label, ...flagArgs] = rest;
   if (!label || label.startsWith("--")) throw new Error("Usage: wgctl peer add <label> [options]");
 
   let endpoint: string | undefined;
+  let routes: string[] | undefined;
   let output: string | undefined;
   let joinToken = false;
 
@@ -157,6 +168,13 @@ function parseAddOptions(rest: string[]): { label: string; endpoint?: string; ou
     if (arg === "--endpoint") {
       endpoint = flagArgs[++i];
       if (!endpoint) throw new Error("--endpoint requires a value.");
+    } else if (arg === "--routes") {
+      const raw = flagArgs[++i];
+      if (!raw) throw new Error("--routes requires a value.");
+      routes = raw.split(",").map((r) => r.trim()).filter(Boolean);
+      for (const cidr of routes) {
+        if (!isValidCidr(cidr)) throw new Error(`Invalid CIDR in --routes: ${cidr}`);
+      }
     } else if (arg === "--output") {
       output = flagArgs[++i];
       if (!output) throw new Error("--output requires a value.");
@@ -166,7 +184,7 @@ function parseAddOptions(rest: string[]): { label: string; endpoint?: string; ou
       throw new Error(`Unknown option: ${arg}`);
     }
   }
-  return { label, endpoint, output, joinToken };
+  return { label, endpoint, routes, output, joinToken };
 }
 
 export function peerCommand(args: string[]): void {
@@ -223,7 +241,8 @@ export function peerCommand(args: string[]): void {
       for (const p of peers) {
         const liveEntry = live.find((l) => l.publicKey === p.public_key);
         const handshake = liveEntry?.lastHandshake ? liveEntry.lastHandshake.toISOString() : "never";
-        console.log(`  [${p.id}] ${p.label} — ${p.tunnel_ip} — last handshake: ${handshake}`);
+        const routeSuffix = p.routes ? ` — routes: ${p.routes}` : "";
+        console.log(`  [${p.id}] ${p.label} — ${p.tunnel_ip}${routeSuffix} — last handshake: ${handshake}`);
       }
       return;
     }
