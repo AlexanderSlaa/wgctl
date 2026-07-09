@@ -1,3 +1,10 @@
+## [1.13.1](https://github.com/AlexanderSlaa/wgctl/compare/v1.13.0...v1.13.1) (2026-07-09)
+
+
+### Bug Fixes
+
+* install kernel routes for advertised subnets and clean up stale keys on regen ([1fdc0c3](https://github.com/AlexanderSlaa/wgctl/commit/1fdc0c305c79b077a8b37fd6b457a8ba7b4c2f68))
+
 # [1.13.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.12.0...v1.13.0) (2026-07-01)
 
 
