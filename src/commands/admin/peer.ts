@@ -93,6 +93,7 @@ function buildPeerOutput(params: {
   if (peer) {
     // Regenerating token for existing peer — generate new client keypair and PSK,
     // then update the peer in WireGuard with the new public key.
+    const oldPublicKey = peer.public_key;
     privKey = wgGenKey();
     const newPubKey = wgPubKey(privKey);
     psk = wgGenPsk();
@@ -103,6 +104,9 @@ function buildPeerOutput(params: {
     const existingRoutes = peer.routes ? peer.routes.split(",").filter(Boolean) : [];
     const serverAllowedIPs = [`${peer.tunnel_ip}/32`, ...existingRoutes];
     upsertPeer({ publicKey: peer.public_key, presharedKey: psk, allowedIPs: serverAllowedIPs });
+    removePeer(oldPublicKey);
+    removePeerFromConf(oldPublicKey);
+    addPeerToConf({ label: params.label, publicKey: peer.public_key, presharedKey: psk, allowedIPs: serverAllowedIPs, keepalive: config.persistentKeepalive });
   } else {
     privKey = wgGenKey();
     const peerPublicKey = wgPubKey(privKey);

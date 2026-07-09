@@ -38,6 +38,16 @@ export function upsertPeer(params: {
   } else {
     execFileSync("wg", args);
   }
+  // `wg set` only updates WireGuard's internal crypto-routing table, not the
+  // kernel routing table. Without this, advertised subnets (anything beyond
+  // the peer's own /32) are unreachable from the hub host itself and from
+  // any traffic forwarded through it, since nothing ever pointed the kernel
+  // at this interface for those destinations.
+  for (const cidr of params.allowedIPs) {
+    if (!cidr.endsWith("/32") && !cidr.endsWith("/128")) {
+      execFileSync("ip", ["route", "replace", cidr, "dev", config.wgInterface]);
+    }
+  }
 }
 
 export function removePeer(publicKey: string): void {
@@ -69,10 +79,11 @@ export function getLiveStatus(): LivePeer[] {
 
 export function reconcileFromDb(): void {
   for (const peer of listAllPeers()) {
+    const routes = peer.routes ? peer.routes.split(",").filter(Boolean) : [];
     upsertPeer({
       publicKey: peer.public_key,
       presharedKey: peer.preshared_key ?? undefined,
-      allowedIPs: [`${peer.tunnel_ip}/32`],
+      allowedIPs: [`${peer.tunnel_ip}/32`, ...routes],
     });
   }
 }
