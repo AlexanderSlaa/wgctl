@@ -82,7 +82,17 @@ Don't bump the version in `package.json` by hand — `semantic-release`
 computes the next version from commit messages and updates it, the
 changelog, and the git tag automatically on every push to `main`.
 
-The CI workflow has two jobs: `test` (build + typecheck) on every push/PR,
-and `release` (runs `semantic-release`) on pushes to `main` only, after
-`test` passes. Publishing requires an `NPM_TOKEN` repository secret;
-`GITHUB_TOKEN` is provided automatically by GitHub Actions.
+The CI workflow has three jobs: `test` (build + typecheck) on every
+push/PR; `release` (runs `semantic-release`) on pushes to `main` only,
+after `test` passes; and `docker`, which builds and pushes an image to
+`ghcr.io/alexanderslaa/wgctl` after `release`, only when it actually
+published a new version.
+
+npm publishing prefers [Trusted Publishing](https://docs.npmjs.com/trusted-publishers)
+(OIDC — no token leaves CI) when the `wgctl` package is configured for it
+on npmjs.com (Package settings -> Trusted Publisher -> GitHub Actions,
+repo `AlexanderSlaa/wgctl`, workflow `ci.yml`); npm CLI falls back to the
+`NPM_TOKEN` repository secret automatically if that isn't set up or the
+OIDC exchange fails, so both stay configured. `GITHUB_TOKEN` (used for
+release notes/tags and the GHCR push) is provided automatically by
+GitHub Actions.

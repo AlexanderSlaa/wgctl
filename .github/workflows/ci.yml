@@ -42,6 +42,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Lets npm CLI mint an OIDC token and publish via Trusted Publishing
+      # — no NPM_TOKEN needed on the wire. It only takes effect once the
+      # wgctl package is configured on npmjs.com (Package settings ->
+      # Trusted Publisher -> GitHub Actions, repo AlexanderSlaa/wgctl,
+      # workflow ci.yml) — a one-time step done on npmjs.com, not here.
+      # Until/unless that's set, or if npm ever can't complete the OIDC
+      # exchange, npm CLI falls back to NODE_AUTH_TOKEN below
+      # automatically — both stay configured so neither path breaks
+      # the other.
       id-token: write
     outputs:
       new-release-published: ${{ steps.semantic-release.outputs.new_release_published }}
@@ -59,6 +68,10 @@ jobs:
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org/"
+      - name: Update npm
+        # Trusted Publishing needs npm CLI >= 11.5.1; don't rely on
+        # whatever version happens to ship with the Node release above.
+        run: npm install -g npm@latest
       - name: Install dependencies
         run: npm install
       - name: Restore tracked files
