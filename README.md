@@ -208,6 +208,195 @@ sudo wg show wg0
 systemctl status wg-quick@wg0
 ```
 
+## Docker / Kubernetes
+
+wgctl normally manages the tunnel through a systemd unit (`wg-quick@<iface>`
+or, on the hub, `wgctl service ...`). Containers don't have systemd, so
+every command that would otherwise touch it — `setup`, `join`, `up`,
+`down`, `service` — detects that (via `/run/systemd/system`) and drives
+`wg-quick` directly instead. Nothing else about the CLI changes.
+
+CI publishes an image on every release to `ghcr.io/alexanderslaa/wgctl`,
+tagged with the release version and `latest` (a package GHCR creates as
+private the first time it's pushed — flip it to public in the repo's
+Packages settings if it should be pullable without auth):
+
+```sh
+docker pull ghcr.io/alexanderslaa/wgctl:latest
+```
+
+Or build it yourself from the `Dockerfile` in this repo:
+
+```sh
+docker build -t wgctl:latest .
+```
+
+The image's entrypoint has two modes:
+
+- **Admin passthrough** — `docker run wgctl:latest peer add alice --join-token`
+  (or `kubectl exec <pod> -- wgctl peer ls`) runs that subcommand and exits,
+  same as running it on a host.
+- **Default (`CMD ["hub"]`)** — on first start, runs `wgctl join` if
+  `JOIN_TOKEN` is set, otherwise `wgctl setup --yes` using `WG_INTERFACE` /
+  `WG_LISTEN_PORT` / `WG_SUBNET` / `PUBLIC_HOST` env vars; on later starts
+  (config already present, e.g. on a mounted volume) it just brings the
+  interface up. Either way it then stays in the foreground and brings the
+  interface down cleanly on `SIGTERM`.
+
+Run a hub:
+
+```sh
+docker run -d --name wgctl-hub \
+  --cap-add NET_ADMIN --cap-add NET_RAW \
+  --sysctl net.ipv4.ip_forward=1 \
+  -p 51820:51820/udp \
+  -e PUBLIC_HOST=vpn.example.com \
+  -v wgctl-wireguard:/etc/wireguard -v wgctl-data:/etc/wgctl \
+  wgctl:latest
+```
+
+Run a peer that joins with a token. The token embeds the peer's private
+key, so treat it like a secret: pass it via `--env-file` (a `chmod 600`
+file, not committed) rather than `-e`, which leaks it into `docker inspect`
+and your shell history:
+
+```sh
+echo "JOIN_TOKEN=wgctl-join-v1...." > wgctl-peer.env && chmod 600 wgctl-peer.env
+docker run -d --name wgctl-peer \
+  --cap-add NET_ADMIN --cap-add NET_RAW \
+  --env-file wgctl-peer.env \
+  -v wgctl-wireguard:/etc/wireguard \
+  wgctl:latest
+rm wgctl-peer.env
+```
+
+Requirements either way: the host/node kernel needs the WireGuard module
+(most kernels ≥5.6 have it built in or loadable — this is not something the
+container can provide), and the container needs `CAP_NET_ADMIN` +
+`CAP_NET_RAW` plus a writable `net.ipv4.ip_forward` sysctl in its network
+namespace (`--sysctl` on plain Docker; a pod-level `securityContext.sysctls`
+entry on Kubernetes — only needed on the hub, which forwards traffic for
+peers' advertised routes). Neither requires `--privileged`.
+
+### Docker Compose
+
+Example Compose files are in [`deploy/docker-compose/`](./deploy/docker-compose/).
+
+`hub.yml` runs a standalone hub — set `PUBLIC_HOST`, then:
+
+```sh
+docker compose -f deploy/docker-compose/hub.yml up -d
+docker compose -f deploy/docker-compose/hub.yml exec wgctl-hub wgctl peer add alice --join-token
+```
+
+`app-with-vpn.yml` is the sidecar pattern for an app that needs the VPN
+(e.g. vLLM reaching a service that only lives on the overlay) — put a
+generated `JOIN_TOKEN` in `wgctl-peer.env` (`chmod 600`, not committed)
+next to it, then:
+
+```sh
+docker compose -f deploy/docker-compose/app-with-vpn.yml up -d
+```
+
+It uses `network_mode: "service:wgctl"` on the app container — Compose's
+equivalent of Kubernetes' shared-Pod-netns, since Compose has no per-pod
+network isolation of its own. Once wgctl brings `wg0` up, the app
+container reaches the overlay directly with no proxying and no changes on
+its side, at the cost that any port the app needs published has to go on
+the `wgctl` service's `ports:` instead of its own (they share one network
+stack, so only its owner can publish).
+
+### Kubernetes
+
+Example manifests are in [`deploy/k8s/`](./deploy/k8s/):
+`hub.yaml` (a `StatefulSet` hub behind a `LoadBalancer` Service),
+`peer.yaml` (a standalone Pod using the sidecar pattern below), and
+`deployment-sidecar.yaml` (the same sidecar added to a Deployment — the
+one to copy from for a real app). Read the comments at the top of each
+file before applying — in particular, `PUBLIC_HOST` has a chicken-and-egg
+dependency on the hub Service's external address.
+
+### Adding the VPN sidecar to an existing Deployment
+
+The common case (e.g. vLLM needing to reach a model/service that only
+lives on the VPN): add wgctl as a sidecar in the *same Pod* as your app,
+rather than running it as its own Deployment. Containers in a Pod share
+one network namespace, so once the sidecar brings `wg0` up, the app
+container reaches the overlay directly — no proxying, no client-side
+networking changes, no extra Service.
+
+1. **Generate a join token on the hub** (one per app instance is fine;
+   tokens don't expire — see [Security considerations](#security-considerations)):
+   ```sh
+   kubectl exec -it wgctl-hub-0 -- wgctl peer add my-vllm-deploy --join-token
+   ```
+
+2. **Store it as a Secret** — never inline it in the Deployment YAML:
+   ```sh
+   kubectl create secret generic wgctl-peer-token --from-literal=JOIN_TOKEN='wgctl-join-v1....'
+   ```
+
+3. **Add the sidecar to your Deployment's pod template** (`spec.template.spec`):
+   an `initContainers` entry for wgctl with `restartPolicy: Always` (this
+   is what makes it a *native sidecar* — starts before, keeps running
+   alongside, the app container), a `startupProbe` so the app container
+   doesn't race the tunnel coming up, and a scratch volume for wgctl's
+   config. The app container itself needs no changes — no capabilities,
+   no volume mount, nothing:
+   ```yaml
+   spec:
+     template:
+       spec:
+         initContainers:
+           - name: wgctl
+             image: your-registry/wgctl:latest
+             restartPolicy: Always
+             env:
+               - name: WG_INTERFACE
+                 value: wg0
+               - name: JOIN_TOKEN
+                 valueFrom:
+                   secretKeyRef:
+                     name: wgctl-peer-token
+                     key: JOIN_TOKEN
+             securityContext:
+               capabilities:
+                 add: ["NET_ADMIN", "NET_RAW"]
+             volumeMounts:
+               - name: wireguard-conf
+                 mountPath: /etc/wireguard
+             startupProbe:
+               exec:
+                 command: ["sh", "-c", "wg show \"$WG_INTERFACE\""]
+               periodSeconds: 2
+               failureThreshold: 30
+         containers:
+           - name: vllm # your existing app container, unchanged
+             # ...
+         volumes:
+           - name: wireguard-conf
+             emptyDir: {} # token embeds the private key, so this is safe to lose on reschedule
+   ```
+   The full, copy-pasteable version is [`deploy/k8s/deployment-sidecar.yaml`](./deploy/k8s/deployment-sidecar.yaml).
+
+4. **Apply it**: `kubectl apply -f your-deployment.yaml`. Watch the
+   sidecar come up with `kubectl logs <pod> -c wgctl`; once `startupProbe`
+   passes the app container starts and can reach addresses on the
+   overlay/advertised subnets.
+
+Native sidecars (`restartPolicy: Always` on an `initContainer`) need
+Kubernetes 1.29+. On older clusters, put the wgctl container in
+`containers:` instead and drop `restartPolicy` / `startupProbe` — it'll
+still work, but container start order within a Pod isn't guaranteed, so
+the app should retry its VPN-side connections rather than assume the
+tunnel is already up.
+
+Scope what the app can reach: generate the join token with
+`wgctl peer add ... --routes <cidr,...>` on the hub so `AllowedIPs` covers
+only the overlay/advertised subnets the app actually needs, not
+`0.0.0.0/0` — otherwise all of the app container's traffic gets pulled
+through the tunnel.
+
 ## Updating
 
 ```sh

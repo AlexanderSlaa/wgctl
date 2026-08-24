@@ -19,6 +19,11 @@ First-time setup (run on the hub server, as root):
   wgctl setup [--interface <name>] [--force]
                               Interactive wizard: configure WireGuard, write
                               env file, install systemd service.
+  wgctl setup --yes [--interface <name>] [--port <n>] [--subnet <cidr>]
+              [--public-host <host>] [--force]
+                              Non-interactive: use flags/derived defaults,
+                              skip all prompts. Falls back to \`wg-quick up\`
+                              directly when no systemd is present (containers).
 
 Hub server administration (run locally on the server, as root):
   wgctl peer add <label> [--endpoint <host:port>] [--routes <cidr,...>] [--output <file>] [--join-token]

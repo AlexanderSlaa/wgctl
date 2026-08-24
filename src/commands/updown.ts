@@ -1,4 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { hasSystemd } from "../shared/systemd.js";
 
 function parseArgs(args: string[]): { iface: string } {
   let iface = "wg0";
@@ -21,6 +23,13 @@ function unitFor(iface: string): string | undefined {
 
 export function downCommand(args: string[]): void {
   const { iface } = parseArgs(args);
+
+  if (!hasSystemd()) {
+    execFileSync("wg-quick", ["down", iface], { stdio: "inherit" });
+    console.log(`Stopped ${iface}.`);
+    return;
+  }
+
   const unit = unitFor(iface);
   if (!unit) {
     console.error(`No wgctl-managed unit found for interface ${iface}.`);
@@ -33,6 +42,19 @@ export function downCommand(args: string[]): void {
 
 export function upCommand(args: string[]): void {
   const { iface } = parseArgs(args);
+
+  if (!hasSystemd()) {
+    if (!existsSync(`/etc/wireguard/${iface}.conf`)) {
+      console.error(`No config found for interface ${iface} (/etc/wireguard/${iface}.conf missing).`);
+      console.error(`Run \`wgctl join <token>\` to join an overlay, or \`wgctl setup\` to configure a hub.`);
+      process.exitCode = 1;
+      return;
+    }
+    execFileSync("wg-quick", ["up", iface], { stdio: "inherit" });
+    console.log(`Started ${iface}.`);
+    return;
+  }
+
   const unit = unitFor(iface);
   if (!unit) {
     console.error(`No wgctl-managed unit found for interface ${iface}.`);

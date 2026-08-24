@@ -1,0 +1,25 @@
+# Standalone wgctl hub. Bring up, then add peers with:
+#   docker compose -f hub.yml exec wgctl-hub wgctl peer add alice --join-token
+#
+# Set PUBLIC_HOST below to this host's externally reachable address before
+# generating tokens, or peers won't know where to connect.
+services:
+  wgctl-hub:
+    image: ghcr.io/alexanderslaa/wgctl:latest
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    sysctls:
+      net.ipv4.ip_forward: 1
+    ports:
+      - "51820:51820/udp"
+    environment:
+      PUBLIC_HOST: vpn.example.com
+    volumes:
+      - wireguard:/etc/wireguard
+      - wgctl-data:/etc/wgctl
+
+volumes:
+  wireguard:
+  wgctl-data:

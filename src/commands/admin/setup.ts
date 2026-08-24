@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { networkInterfaces } from "node:os";
 import { askText, askChoice } from "../../client/prompts.js";
 import { isValidCidr, hostAtOffset, parseCidr } from "../../shared/cidr.js";
+import { hasSystemd } from "../../shared/systemd.js";
 
 function detectPublicHost(): string | undefined {
   for (const addrs of Object.values(networkInterfaces())) {
@@ -45,15 +46,28 @@ function stopIfActive(unitName: string): void {
   }
 }
 
+function flagValue(args: string[], ...names: string[]): string | undefined {
+  const idx = args.findIndex((a) => names.includes(a));
+  return idx !== -1 ? args[idx + 1] : undefined;
+}
+
 export async function setupCommand(args: string[]): Promise<void> {
   const force = args.includes("--force") || args.includes("-f");
-  const ifaceFlagIdx = args.findIndex((a) => a === "--interface" || a === "-i");
-  const ifaceFlag = ifaceFlagIdx !== -1 ? args[ifaceFlagIdx + 1] : undefined;
+  // -y/--yes: skip every prompt, using flags where given and derived
+  // defaults otherwise. Needed for scripted/container use, where stdin
+  // usually isn't a TTY and there's nobody to answer a prompt.
+  const nonInteractive = args.includes("--yes") || args.includes("-y");
+  const ifaceFlag = flagValue(args, "--interface", "-i");
+  const portFlag = flagValue(args, "--port");
+  const subnetFlag = flagValue(args, "--subnet");
+  const publicHostFlag = flagValue(args, "--public-host");
 
   // Step 1: interface name
   let iface: string;
   if (ifaceFlag) {
     iface = ifaceFlag;
+  } else if (nonInteractive) {
+    iface = "wg0";
   } else {
     const answer = await askText("WireGuard interface name [wg0]: ");
     iface = answer || "wg0";
@@ -74,6 +88,11 @@ export async function setupCommand(args: string[]): Promise<void> {
       console.log(`  ${"/etc/wgctl/" + iface + ".env"}`.padEnd(pad) + (state.envExists ? "✓ exists" : "✗ missing"));
       console.log(`  ${"wg-quick@" + iface + " (systemd)"}`.padEnd(pad) + (state.unitExists ? "✓ enabled" : "✗ not enabled"));
       console.log();
+      if (nonInteractive) {
+        console.error("Already configured — pass --force to overwrite, or --yes with a different --interface.");
+        process.exitCode = 1;
+        return;
+      }
       const choice = await askChoice("What would you like to do?", [
         "Re-run setup and overwrite existing config (will restart service if running)",
         "Exit — keep existing config",
@@ -88,7 +107,7 @@ export async function setupCommand(args: string[]): Promise<void> {
   const defaults = deriveDefaults(iface);
 
   // Step 2: WireGuard UDP port
-  const wgPortStr = (await askText(`WireGuard UDP listen port [${defaults.wgPort}]: `)) || String(defaults.wgPort);
+  const wgPortStr = portFlag ?? (nonInteractive ? String(defaults.wgPort) : (await askText(`WireGuard UDP listen port [${defaults.wgPort}]: `)) || String(defaults.wgPort));
   const wgPort = Number(wgPortStr);
   if (!Number.isInteger(wgPort) || wgPort < 1 || wgPort > 65535) {
     console.error("Invalid port — must be an integer between 1 and 65535.");
@@ -97,7 +116,7 @@ export async function setupCommand(args: string[]): Promise<void> {
   }
 
   // Step 3: Tunnel subnet
-  const subnetInput = (await askText(`Tunnel subnet CIDR [${defaults.subnet}]: `)) || defaults.subnet;
+  const subnetInput = subnetFlag ?? (nonInteractive ? defaults.subnet : (await askText(`Tunnel subnet CIDR [${defaults.subnet}]: `)) || defaults.subnet);
   if (!isValidCidr(subnetInput)) {
     console.error(`Invalid CIDR: ${subnetInput}`);
     process.exitCode = 1;
@@ -109,11 +128,18 @@ export async function setupCommand(args: string[]): Promise<void> {
 
   // Step 4: Public host (used in join tokens so peers know where to connect)
   const detected = detectPublicHost();
-  const publicHostPrompt = detected
-    ? `Public hostname or IP peers connect to [${detected}]: `
-    : "Public hostname or IP peers connect to (leave empty to auto-detect at runtime): ";
-  const publicHostInput = await askText(publicHostPrompt);
-  const publicHost = publicHostInput || detected || "";
+  let publicHost: string;
+  if (publicHostFlag !== undefined) {
+    publicHost = publicHostFlag;
+  } else if (nonInteractive) {
+    publicHost = detected ?? "";
+  } else {
+    const publicHostPrompt = detected
+      ? `Public hostname or IP peers connect to [${detected}]: `
+      : "Public hostname or IP peers connect to (leave empty to auto-detect at runtime): ";
+    const publicHostInput = await askText(publicHostPrompt);
+    publicHost = publicHostInput || detected || "";
+  }
 
   if (publicHost && /[\n\r\0=]/.test(publicHost)) {
     console.error("Public host contains invalid characters.");
@@ -122,14 +148,19 @@ export async function setupCommand(args: string[]): Promise<void> {
   }
 
   // Step 5: Service mode
-  const serviceChoice = await askChoice("Systemd service setup?", [
-    "Start now + autostart on boot  (recommended)",
-    "Autostart on boot only",
-    "Start now only",
-    "Install unit only (no start, no enable)",
-  ]);
+  const systemd = hasSystemd();
+  const serviceChoice = systemd && !nonInteractive
+    ? await askChoice("Systemd service setup?", [
+        "Start now + autostart on boot  (recommended)",
+        "Autostart on boot only",
+        "Start now only",
+        "Install unit only (no start, no enable)",
+      ])
+    : 0;
 
-  const serviceLabel = ["enable --now", "enable (no start)", "start (no enable)", "install only"][serviceChoice];
+  const serviceLabel = systemd
+    ? ["enable --now", "enable (no start)", "start (no enable)", "install only"][serviceChoice]
+    : "start now via wg-quick (no systemd detected — your container/orchestrator owns restart-on-boot)";
   console.log(`
 Summary:
   Interface:     ${iface}
@@ -139,10 +170,12 @@ Summary:
   Public host:   ${publicHost || "(auto-detect at runtime)"}
   Service:       ${serviceLabel}
 `);
-  const confirm = await askText("Proceed? [Y/n]: ");
-  if (confirm.trim().toLowerCase() === "n") {
-    console.log("Aborted — nothing was changed.");
-    return;
+  if (!nonInteractive) {
+    const confirm = await askText("Proceed? [Y/n]: ");
+    if (confirm.trim().toLowerCase() === "n") {
+      console.log("Aborted — nothing was changed.");
+      return;
+    }
   }
 
   // === Write phase ===
@@ -201,14 +234,21 @@ Summary:
   writeFileSync(envFilePath, envLines.join("\n") + "\n", { mode: 0o600 });
   console.log(`Wrote ${envFilePath}`);
 
-  switch (serviceChoice) {
-    case 0: execFileSync("systemctl", ["enable", "--now", unitName], { stdio: "inherit" }); break;
-    case 1: execFileSync("systemctl", ["enable", unitName], { stdio: "inherit" }); console.log(`${unitName} enabled — will start on next boot.`); break;
-    case 2: execFileSync("systemctl", ["start", unitName], { stdio: "inherit" }); console.log(`${unitName} started.`); break;
-    case 3: console.log(`Unit installed. Start manually with: systemctl start ${unitName}`); break;
+  if (systemd) {
+    switch (serviceChoice) {
+      case 0: execFileSync("systemctl", ["enable", "--now", unitName], { stdio: "inherit" }); break;
+      case 1: execFileSync("systemctl", ["enable", unitName], { stdio: "inherit" }); console.log(`${unitName} enabled — will start on next boot.`); break;
+      case 2: execFileSync("systemctl", ["start", unitName], { stdio: "inherit" }); console.log(`${unitName} started.`); break;
+      case 3: console.log(`Unit installed. Start manually with: systemctl start ${unitName}`); break;
+    }
+  } else {
+    execFileSync("wg-quick", ["up", iface], { stdio: "inherit" });
+    console.log(`${iface} started via wg-quick.`);
   }
 
-  console.log(`
+  console.log(
+    systemd
+      ? `
 Setup complete for ${iface}.
   Status:  systemctl status ${unitName}
   Logs:    journalctl -u ${unitName} -f
@@ -216,5 +256,18 @@ Setup complete for ${iface}.
 
 Add a peer:
   wgctl peer add <name> --join-token
-`);
+`
+      : `
+Setup complete for ${iface}.
+  Status:  wgctl status --interface ${iface}
+  Restart: wgctl down --interface ${iface} && wgctl up --interface ${iface}
+
+No systemd detected — the interface will not survive a container restart on
+its own. Re-run \`wg-quick up ${iface}\` (or \`wgctl up --interface ${iface}\`)
+from your container's entrypoint / orchestrator on startup.
+
+Add a peer:
+  wgctl peer add <name> --join-token
+`,
+  );
 }

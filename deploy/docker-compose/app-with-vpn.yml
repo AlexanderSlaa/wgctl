@@ -1,0 +1,47 @@
+# wgctl as a VPN sidecar for an app service (e.g. vLLM reaching a model
+# or service that only lives on the WireGuard overlay) — the Compose
+# equivalent of deploy/k8s/deployment-sidecar.yaml.
+#
+# `network_mode: "service:wgctl"` makes the app container share wgctl's
+# network stack entirely (Compose has no per-pod netns like Kubernetes —
+# this is its version of that). Once wgctl brings wg0 up, the app reaches
+# the overlay directly, no proxying. The flip side: the app can't have
+# its own `ports:` — anything it needs published has to go on the wgctl
+# service's `ports:` instead, since wgctl owns the network namespace.
+#
+# Before starting: generate a join token on the hub and put it in
+# wgctl-peer.env (chmod 600, not committed):
+#   docker compose -f hub.yml exec wgctl-hub wgctl peer add my-vllm --join-token
+#   echo "JOIN_TOKEN=wgctl-join-v1...." > wgctl-peer.env && chmod 600 wgctl-peer.env
+#
+# Scope what the app can reach: generate the token with
+# `wgctl peer add ... --routes <cidr,...>` on the hub so AllowedIPs covers
+# only what's needed, not 0.0.0.0/0 — otherwise all of the app's traffic
+# gets pulled through the tunnel.
+services:
+  wgctl:
+    image: ghcr.io/alexanderslaa/wgctl:latest
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    env_file:
+      - wgctl-peer.env
+    volumes:
+      - wireguard:/etc/wireguard
+    healthcheck:
+      test: ["CMD-SHELL", "wg show \"$$WG_INTERFACE\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  vllm:
+    image: your-registry/vllm:latest # replace with your actual app image
+    restart: unless-stopped
+    network_mode: "service:wgctl"
+    depends_on:
+      wgctl:
+        condition: service_healthy
+
+volumes:
+  wireguard:

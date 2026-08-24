@@ -1,0 +1,109 @@
+# Example wgctl hub deployment for Kubernetes.
+#
+# The hub is a singleton: it owns one WireGuard interface, one SQLite
+# peer database, and the kernel state backing both — it does not scale
+# horizontally. A StatefulSet with replicas: 1 gives it a stable identity
+# and a PersistentVolumeClaim it keeps across restarts/reschedules.
+#
+# Before applying:
+#   - Build and push the image (see README.md "Docker / Kubernetes"),
+#     then set the image below.
+#   - Set PUBLIC_HOST in the ConfigMap to the address peers will connect
+#     to — usually the external IP/hostname of the Service below. This is
+#     a chicken-and-egg problem on first apply: apply once to provision
+#     the LoadBalancer, note its external IP, then set PUBLIC_HOST and
+#     re-apply (or point PUBLIC_HOST at a DNS name you control instead).
+#   - Confirm the node's kernel has the WireGuard module (`lsmod | grep
+#     wireguard`, or it's built in) — this manifest does not install it.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wgctl-hub-config
+data:
+  WG_INTERFACE: wg0
+  WG_LISTEN_PORT: "51820"
+  WG_SUBNET: 10.88.0.0/24
+  PUBLIC_HOST: "" # set to the hub's externally reachable address/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wgctl-hub
+spec:
+  type: LoadBalancer
+  selector:
+    app: wgctl-hub
+  ports:
+    - name: wireguard
+      port: 51820
+      targetPort: 51820
+      protocol: UDP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: wgctl-hub
+spec:
+  serviceName: wgctl-hub
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wgctl-hub
+  template:
+    metadata:
+      labels:
+        app: wgctl-hub
+    spec:
+      # Namespaced net.ipv4.ip_forward needs to be in the kubelet's
+      # allowed sysctl list. It's treated as safe (no --allowed-unsafe-
+      # sysctls flag needed) on recent Kubernetes; check your cluster's
+      # version/policy if the pod fails to start with a sysctl error.
+      securityContext:
+        sysctls:
+          - name: net.ipv4.ip_forward
+            value: "1"
+      containers:
+        - name: wgctl
+          image: your-registry/wgctl:latest # build & push from this repo's Dockerfile
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: wgctl-hub-config
+          ports:
+            - name: wireguard
+              containerPort: 51820
+              protocol: UDP
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN", "NET_RAW"]
+          volumeMounts:
+            - name: wireguard-conf
+              mountPath: /etc/wireguard
+            - name: wgctl-data
+              mountPath: /etc/wgctl
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "wg show \"$WG_INTERFACE\""]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "wg show \"$WG_INTERFACE\""]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+  volumeClaimTemplates:
+    - metadata:
+        name: wireguard-conf
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 100Mi
+    - metadata:
+        name: wgctl-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 100Mi

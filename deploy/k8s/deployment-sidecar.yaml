@@ -1,0 +1,77 @@
+# Example: the wgctl VPN sidecar added to a normal Deployment, instead of
+# the bare Pod in peer.yaml. This is the shape to copy into an existing
+# app Deployment (e.g. vLLM) — everything under `wgctl-sidecar-start` /
+# `wgctl-sidecar-end` below is the part to paste into your own
+# spec.template.spec; the rest (Deployment/metadata/selector/your app
+# container) is just this example filled in around it.
+#
+# Steps:
+#   1. Generate a join token on the hub:
+#        kubectl exec -it wgctl-hub-0 -- wgctl peer add my-vllm-deploy --join-token
+#   2. Create the secret from it:
+#        kubectl create secret generic wgctl-peer-token --from-literal=JOIN_TOKEN='wgctl-join-v1....'
+#   3. Add an `initContainers` entry for wgctl (restartPolicy: Always) to
+#      your Deployment's pod template, a matching `volumes` entry, and a
+#      `startupProbe` gate — copy the marked block below.
+#   4. kubectl apply -f your-deployment.yaml
+#
+# Requires Kubernetes 1.29+ for native sidecars (initContainers with
+# restartPolicy: Always), which is what makes the app container wait for
+# the tunnel instead of racing it. On older clusters, move the wgctl
+# container into `containers:` instead and drop restartPolicy; ordering
+# is then best-effort, so make sure the app retries its VPN-side
+# connections on startup.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm
+  template:
+    metadata:
+      labels:
+        app: vllm
+    spec:
+      # --- wgctl-sidecar-start ---
+      initContainers:
+        - name: wgctl
+          image: your-registry/wgctl:latest
+          imagePullPolicy: IfNotPresent
+          restartPolicy: Always # native sidecar: starts before, outlives the app container
+          env:
+            - name: WG_INTERFACE
+              value: wg0
+            - name: JOIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: wgctl-peer-token
+                  key: JOIN_TOKEN
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN", "NET_RAW"]
+          volumeMounts:
+            - name: wireguard-conf
+              mountPath: /etc/wireguard
+          startupProbe:
+            exec:
+              command: ["sh", "-c", "wg show \"$WG_INTERFACE\""]
+            periodSeconds: 2
+            failureThreshold: 30
+      # --- wgctl-sidecar-end ---
+      containers:
+        - name: vllm
+          image: your-registry/vllm:latest # replace with your actual app image
+          # No NET_ADMIN, no volume mount needed here — the app container
+          # shares the sidecar's network namespace and just sees wg0.
+      # --- wgctl-sidecar-start (volumes) ---
+      volumes:
+        - name: wireguard-conf
+          # emptyDir is fine: the join token embeds the peer's private key,
+          # so a pod reschedule just re-runs `wgctl join` with the same
+          # token and reproduces the same identity/config.
+          emptyDir: {}
+      # --- wgctl-sidecar-end (volumes) ---

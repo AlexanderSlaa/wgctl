@@ -1,6 +1,7 @@
 import { existsSync, rmSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { askText } from "../../client/prompts.js";
+import { hasSystemd } from "../../shared/systemd.js";
 
 function parseArgs(args: string[]): { sub: string | undefined; iface: string; rest: string[] } {
   let iface = "wg0";
@@ -39,6 +40,18 @@ export async function serviceCommand(args: string[]): Promise<void> {
   const unitName = `wg-quick@${iface}`;
   const unitPath = `/etc/systemd/system/${unitName}.service`;
   const envPath = `/etc/wgctl/${iface}.env`;
+  const systemd = hasSystemd();
+
+  if (!systemd && (sub === "enable" || sub === "disable" || sub === "logs")) {
+    console.error(
+      `No systemd detected (running in a container?) — \`wgctl service ${sub}\` needs it and has no equivalent here.\n` +
+        (sub === "logs"
+          ? "Container stdout/stderr is your log stream — use `docker logs` / `kubectl logs` instead."
+          : "Your container/orchestrator owns start/stop and restart-on-boot; use `wgctl up` / `wgctl down` to drive the tunnel directly."),
+    );
+    process.exitCode = 1;
+    return;
+  }
 
   switch (sub) {
     case "enable":
@@ -50,19 +63,39 @@ export async function serviceCommand(args: string[]): Promise<void> {
       console.log(`${unitName} stopped and disabled from boot. (Unit file kept at ${unitPath}.)`);
       return;
     case "start":
-      execFileSync("systemctl", ["start", unitName], { stdio: "inherit" });
-      console.log(`${unitName} started.`);
+      if (systemd) {
+        execFileSync("systemctl", ["start", unitName], { stdio: "inherit" });
+        console.log(`${unitName} started.`);
+      } else {
+        execFileSync("wg-quick", ["up", iface], { stdio: "inherit" });
+        console.log(`${iface} started.`);
+      }
       return;
     case "stop":
-      execFileSync("systemctl", ["stop", unitName], { stdio: "inherit" });
-      console.log(`${unitName} stopped.`);
+      if (systemd) {
+        execFileSync("systemctl", ["stop", unitName], { stdio: "inherit" });
+        console.log(`${unitName} stopped.`);
+      } else {
+        execFileSync("wg-quick", ["down", iface], { stdio: "inherit" });
+        console.log(`${iface} stopped.`);
+      }
       return;
     case "restart":
-      execFileSync("systemctl", ["restart", unitName], { stdio: "inherit" });
-      console.log(`${unitName} restarted.`);
+      if (systemd) {
+        execFileSync("systemctl", ["restart", unitName], { stdio: "inherit" });
+        console.log(`${unitName} restarted.`);
+      } else {
+        spawnSync("wg-quick", ["down", iface], { stdio: "inherit" });
+        execFileSync("wg-quick", ["up", iface], { stdio: "inherit" });
+        console.log(`${iface} restarted.`);
+      }
       return;
     case "status":
-      spawnSync("systemctl", ["status", unitName, "--no-pager"], { stdio: "inherit" });
+      if (systemd) {
+        spawnSync("systemctl", ["status", unitName, "--no-pager"], { stdio: "inherit" });
+      } else {
+        spawnSync("wg", ["show", iface], { stdio: "inherit" });
+      }
       return;
     case "logs": {
       const follow = rest.includes("-f") || rest.includes("--follow");
@@ -74,6 +107,12 @@ export async function serviceCommand(args: string[]): Promise<void> {
       return;
     }
     case "uninstall": {
+      if (!systemd) {
+        spawnSync("wg-quick", ["down", iface], { stdio: "ignore" });
+        if (existsSync(envPath)) rmSync(envPath);
+        console.log(`Stopped ${iface} and removed ${envPath}.`);
+        return;
+      }
       const isEnabled = spawnSync("systemctl", ["is-enabled", "--quiet", unitName], { stdio: "ignore" }).status === 0;
       if (!isEnabled && !existsSync(envPath)) {
         console.log(`${unitName} is not enabled and no env file found — nothing to do.`);

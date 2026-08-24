@@ -43,6 +43,9 @@ jobs:
     permissions:
       contents: write
       id-token: write
+    outputs:
+      new-release-published: ${{ steps.semantic-release.outputs.new_release_published }}
+      new-release-version: ${{ steps.semantic-release.outputs.new_release_version }}
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -65,4 +68,48 @@ jobs:
       - name: Smoke test the binary
         run: npx wgctl
       - name: Run semantic-release
-        run: npx semantic-release
+        id: semantic-release
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          extra_plugins: |
+            @semantic-release/changelog
+            @semantic-release/git
+
+  docker:
+    name: Publish Docker image
+    needs:
+      - release
+    if: needs.release.outputs.new-release-published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=${{ needs.release.outputs.new-release-version }}
+            type=raw,value=latest
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

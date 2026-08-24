@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { hasSystemd } from "../shared/systemd.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -231,7 +232,11 @@ export async function removeJoinCommand(args: string[]): Promise<void> {
     }
   }
 
-  spawnSync("systemctl", ["disable", "--now", paths.unitName], { stdio: "ignore" });
+  if (hasSystemd()) {
+    spawnSync("systemctl", ["disable", "--now", paths.unitName], { stdio: "ignore" });
+  } else {
+    spawnSync("wg-quick", ["down", iface], { stdio: "ignore" });
+  }
   maybeRemove(paths.confPath);
   maybeRemove(paths.dbPath);
   console.log(`Removed joined connection ${iface}.`);
@@ -311,7 +316,12 @@ export async function joinCommand(args: string[]): Promise<void> {
     }
   }
 
-  execFileSync("systemctl", ["enable", "--now", paths.unitName], { stdio: "inherit" });
+  const systemd = hasSystemd();
+  if (systemd) {
+    execFileSync("systemctl", ["enable", "--now", paths.unitName], { stdio: "inherit" });
+  } else {
+    execFileSync("wg-quick", ["up", iface], { stdio: "inherit" });
+  }
 
   markTokenUsed(db, rawToken);
 
@@ -319,5 +329,9 @@ export async function joinCommand(args: string[]): Promise<void> {
   if (advertisedRoutes.length > 0) {
     console.log(`Advertising to network: ${advertisedRoutes.join(", ")}`);
   }
-  console.log(`Status: systemctl status ${paths.unitName}`);
+  console.log(
+    systemd
+      ? `Status: systemctl status ${paths.unitName}`
+      : `Status: wgctl status --interface ${iface}  (no systemd detected — brought up directly; your container/orchestrator owns restart-on-boot)`,
+  );
 }
