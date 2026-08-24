@@ -1,3 +1,10 @@
+# [1.14.0](https://github.com/AlexanderSlaa/wgctl/compare/v1.13.1...v1.14.0) (2026-08-24)
+
+
+### Features
+
+* add Docker/Compose/Kubernetes deployment support ([bfd9121](https://github.com/AlexanderSlaa/wgctl/commit/bfd912144834359cc2e0de6e12d76c53f3d740fe))
+
 ## [1.13.1](https://github.com/AlexanderSlaa/wgctl/compare/v1.13.0...v1.13.1) (2026-07-09)
 
 
